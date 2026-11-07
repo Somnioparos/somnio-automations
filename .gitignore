@@ -1,0 +1,9 @@
+# Ποτέ κλειδιά ή διαπιστευτήρια στο repository
+.clasprc.json
+**/.clasprc.json
+*.secret
+*.key
+.env
+.env.*
+node_modules/
+.DS_Store
