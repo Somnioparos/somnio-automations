@@ -13,23 +13,33 @@
  *     (προμήθεια + ΦΠΑ· για Airbnb εταιρείας και το ΦΠΑ της προμήθειας Airbnb).
  *   - Δικό μας ακίνητο μέσω πλατφόρμας → Πλατφόρμα: Total payout.
  *   - Δικό μας ακίνητο, απευθείας → Επισκέπτης: Total value.
- *   - Direct Cash → Επισκέπτης (μετρητά): ποσό του Direct_Cash.
+ *   - Direct Cash → Επισκέπτης (μετρητά): όλο το ποσό. Σε ακίνητο ιδιοκτήτη η Somnio του αποδίδει
+ *     ποσό − προμήθεια → στήλες «Απόδοση σε ιδιοκτήτη» / ☑ Αποδόθηκε στην ίδια γραμμή.
  */
 
 var REC_TAB = 'Εισπράξεις κρατήσεων';
 var REC_COLS = [
   ['Check_in', 'sys'], ['Ακίνητο', 'sys'], ['Επισκέπτης', 'sys'], ['Πλατφόρμα', 'sys'], ['Ποιος πληρώνει', 'sys'],
   ['Αναμενόμενο', 'sys'], ['Εισπράχθηκε', 'man'], ['Ημ/νία είσπραξης', 'auto'], ['Ποσό', 'auto'], ['Λογαριασμός', 'man'],
-  ['Τραπεζικά', 'man'], ['Υπόλοιπο', 'sys'], ['Κατάσταση', 'sys'], ['Σημείωση', 'man'],
+  ['Τραπεζικά', 'man'], ['Υπόλοιπο', 'sys'],
+  ['Απόδοση σε ιδιοκτήτη', 'sys'], ['Αποδόθηκε', 'man'], ['Ημ/νία απόδοσης', 'auto'], ['Ποσό απόδοσης', 'auto'], ['Λογαριασμός απόδοσης', 'man'],
+  ['Κατάσταση', 'sys'], ['Σημείωση', 'man'],
   ['Check_out', 'sys'], ['Reservation ID', 'sys'], ['Κατάσταση κράτησης', 'sys'], ['Owner_Type', 'sys'], ['event_id', 'sys']
 ];
-var REC_MANUAL = ['Εισπράχθηκε', 'Ημ/νία είσπραξης', 'Ποσό', 'Λογαριασμός', 'Τραπεζικά', 'Σημείωση'];
+var REC_MANUAL = ['Εισπράχθηκε', 'Ημ/νία είσπραξης', 'Ποσό', 'Λογαριασμός', 'Τραπεζικά', 'Σημείωση',
+  'Αποδόθηκε', 'Ημ/νία απόδοσης', 'Ποσό απόδοσης', 'Λογαριασμός απόδοσης'];
+var REC_CHECKS = ['Εισπράχθηκε', 'Αποδόθηκε'];
 var PLATFORM_RX = /airbnb|booking|vrbo|expedia|homeaway|plum|marriott/i;
 
 function recPayer_(b) {
   var n = function (v) { var x = Number(v); return (v === '' || v === null || isNaN(x)) ? 0 : x; };
   var ot = String(b['Owner_Type'] || ''), src = String(b['Source'] || ''), pf = String(b['Platform'] || '');
-  if (src === 'Direct Cash') return { who: 'Επισκέπτης (μετρητά)', amount: n(b['Total payout']) };
+  // Direct Cash: εισπράττει η Somnio όλο το ποσό· σε ακίνητο ιδιοκτήτη αποδίδει ποσό − προμήθεια.
+  if (src === 'Direct Cash') {
+    var full = n(b['Total payout']);
+    var toOwner = (ot === 'Εταιρεία' || ot === 'Φυσικό') ? r2_(full - n(b['Comm_Total'])) : '';
+    return { who: 'Επισκέπτης (μετρητά)', amount: full, toOwner: toOwner };
+  }
   if (ot === 'Δικό μας') {
     if (PLATFORM_RX.test(pf)) return { who: 'Πλατφόρμα', amount: n(b['Total payout']) };
     return { who: 'Επισκέπτης', amount: n(b['Total value']) || n(b['Guest paid']) };
@@ -69,9 +79,10 @@ function syncReceipts_() {
       var o = {
         'Check_in': b['Check_in'], 'Check_out': b['Check_out'], 'Ακίνητο': b['Residence'], 'Επισκέπτης': b['Guest name'],
         'Πλατφόρμα': b['Platform'], 'Ποιος πληρώνει': pay.who, 'Αναμενόμενο': pay.amount,
+        'Απόδοση σε ιδιοκτήτη': pay.toOwner === undefined ? '' : pay.toOwner,
         'Reservation ID': b['Reservation ID'], 'Κατάσταση κράτησης': b['Status'], 'Owner_Type': b['Owner_Type'], 'event_id': id
       };
-      REC_MANUAL.forEach(function (c) { o[c] = ex ? ex[c] : (c === 'Εισπράχθηκε' ? false : ''); });
+      REC_MANUAL.forEach(function (c) { o[c] = ex ? ex[c] : (REC_CHECKS.indexOf(c) > -1 ? false : ''); });
       recDerive_(o);
       rows.push(o);
     });
@@ -93,27 +104,34 @@ function syncReceipts_() {
     if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, hdr.length).clearContent();
     if (out.length) sh.getRange(2, 1, out.length, hdr.length).setValues(out);
     var cm = hmap_(sh);
-    if (sh.getMaxRows() > 1) {
-      var chk = sh.getRange(2, cm['Εισπράχθηκε'] + 1, sh.getMaxRows() - 1, 1);
-      chk.removeCheckboxes();
-      if (out.length) sh.getRange(2, cm['Εισπράχθηκε'] + 1, out.length, 1).insertCheckboxes();
-    }
-    var open = rows.filter(function (o) { return o['Κατάσταση'] === 'Ανοιχτή' || o['Κατάσταση'] === 'Μερική'; }).length;
+    if (sh.getMaxRows() > 1) REC_CHECKS.forEach(function (c) {
+      sh.getRange(2, cm[c] + 1, sh.getMaxRows() - 1, 1).removeCheckboxes();
+      if (out.length) sh.getRange(2, cm[c] + 1, out.length, 1).insertCheckboxes();
+    });
+    var open = rows.filter(function (o) { return /Ανοιχτή|Μερική|απόδοση/.test(o['Κατάσταση']); }).length;
     return { rows: rows.length, open: open };
   } finally { lock.releaseLock(); }
 }
 
-/** Υπόλοιπο + Κατάσταση μιας γραμμής. */
+/** Υπόλοιπο + Κατάσταση μιας γραμμής (είσπραξη και, για Direct Cash ιδιοκτήτη, απόδοση). */
 function recDerive_(o) {
   var exp = num_(o['Αναμενόμενο']), paid = o['Εισπράχθηκε'] === true ? (num_(o['Ποσό']) || 0) : 0;
   var ci = o['Check_in'] instanceof Date ? o['Check_in'] : (o['Check_in'] ? new Date(String(o['Check_in'])) : null);
   if (exp === null) { o['Υπόλοιπο'] = ''; o['Κατάσταση'] = 'Χωρίς ποσό'; return o; }
   var rest = r2_(exp - paid);
   o['Υπόλοιπο'] = rest;
-  if (o['Εισπράχθηκε'] === true && rest <= 0.01) o['Κατάσταση'] = rest < -0.01 ? 'Εξοφλημένη (+' + r2_(-rest) + ')' : 'Εξοφλημένη';
-  else if (paid > 0) o['Κατάσταση'] = 'Μερική';
-  else if (ci && !isNaN(ci) && ci > new Date()) o['Κατάσταση'] = 'Μελλοντική';
-  else o['Κατάσταση'] = 'Ανοιχτή';
+  var st;
+  if (o['Εισπράχθηκε'] === true && rest <= 0.01) st = rest < -0.01 ? 'Εξοφλημένη (+' + r2_(-rest) + ')' : 'Εξοφλημένη';
+  else if (paid > 0) st = 'Μερική';
+  else if (ci && !isNaN(ci) && ci > new Date()) st = 'Μελλοντική';
+  else st = 'Ανοιχτή';
+  var owe = num_(o['Απόδοση σε ιδιοκτήτη']);
+  if (owe !== null && owe > 0) {
+    var given = o['Αποδόθηκε'] === true ? (num_(o['Ποσό απόδοσης']) || 0) : 0;
+    if (given >= owe - 0.01) { if (/^Εξοφλημένη/.test(st)) st = 'Ολοκληρώθηκε'; else st += ' · αποδόθηκε'; }
+    else if (paid > 0) st = (st === 'Μερική' ? 'Μερική' : 'Εισπράχθηκε') + ' · προς απόδοση ' + r2_(owe - given) + ' €';
+  }
+  o['Κατάσταση'] = st;
   return o;
 }
 
@@ -121,7 +139,7 @@ function recDerive_(o) {
 function fillReceiptRows_(sh, start, n) {
   var m = hmap_(sh), lastCol = sh.getLastColumn();
   var rng = sh.getRange(start, 1, n, lastCol), vals = rng.getValues();
-  var cols = ['Ημ/νία είσπραξης', 'Ποσό', 'Υπόλοιπο', 'Κατάσταση'];
+  var cols = ['Ημ/νία είσπραξης', 'Ποσό', 'Ημ/νία απόδοσης', 'Ποσό απόδοσης', 'Υπόλοιπο', 'Κατάσταση'];
   var outCols = cols.map(function () { return []; });
   vals.forEach(function (r) {
     var o = {}; for (var k in m) o[k] = r[m[k]];
@@ -129,6 +147,10 @@ function fillReceiptRows_(sh, start, n) {
     if (o['Εισπράχθηκε'] === true) {
       if (blank_(o['Ημ/νία είσπραξης'])) o['Ημ/νία είσπραξης'] = new Date(new Date().setHours(0, 0, 0, 0));
       if (blank_(o['Ποσό'])) o['Ποσό'] = o['Αναμενόμενο'];
+    }
+    if (o['Αποδόθηκε'] === true) {
+      if (blank_(o['Ημ/νία απόδοσης'])) o['Ημ/νία απόδοσης'] = new Date(new Date().setHours(0, 0, 0, 0));
+      if (blank_(o['Ποσό απόδοσης'])) o['Ποσό απόδοσης'] = o['Απόδοση σε ιδιοκτήτη'];
     }
     recDerive_(o);
     cols.forEach(function (c, i) { outCols[i].push([o[c]]); });
@@ -150,13 +172,18 @@ function setupReceipts_(ss) {
   var m = hmap_(sh), rows = Math.max(sh.getMaxRows() - 1, 1);
   sh.setFrozenColumns(3);
   ['Check_in', 'Check_out'].forEach(function (c) { sh.getRange(2, m[c] + 1, rows, 1).setNumberFormat('dd/mm/yyyy'); });
-  ['Αναμενόμενο', 'Υπόλοιπο'].forEach(function (c) { sh.getRange(2, m[c] + 1, rows, 1).setNumberFormat('#,##0.00'); });
+  ['Αναμενόμενο', 'Υπόλοιπο', 'Απόδοση σε ιδιοκτήτη'].forEach(function (c) { sh.getRange(2, m[c] + 1, rows, 1).setNumberFormat('#,##0.00'); });
   var help = sheet_(ss, T.HELP), hm = hmap_(help);
-  sh.getRange(2, m['Λογαριασμός'] + 1, rows, 1).setDataValidation(SpreadsheetApp.newDataValidation()
-    .requireValueInRange(help.getRange(2, hm['Λογαριασμοί'] + 1, Math.max(help.getMaxRows() - 1, 1), 1), true).setAllowInvalid(false).build());
+  var accRule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(help.getRange(2, hm['Λογαριασμοί'] + 1, Math.max(help.getMaxRows() - 1, 1), 1), true).setAllowInvalid(false).build();
+  sh.getRange(2, m['Λογαριασμός'] + 1, rows, 1).setDataValidation(accRule);
+  sh.getRange(2, m['Λογαριασμός απόδοσης'] + 1, rows, 1).setDataValidation(accRule);
+  sh.getRange(1, m['Απόδοση σε ιδιοκτήτη'] + 1).setNote('Μόνο για Direct Cash σε ακίνητο ιδιοκτήτη: ό,τι εισπράξαμε μείον την προμήθειά μας. Τσέκαρε «Αποδόθηκε» όταν τα δώσεις.');
   // χρώματα κατάστασης
   var all = sh.getRange(2, 1, rows, sh.getLastColumn()), L = columnLetter_(m['Κατάσταση'] + 1);
   var rules = sh.getConditionalFormatRules().filter(function (r) { return r.getRanges()[0].getA1Notation() !== all.getA1Notation(); });
+  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=ISNUMBER(SEARCH("προς απόδοση",$' + L + '2))').setBackground('#FCE5CD').setRanges([all]).build());
+  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$' + L + '2="Ολοκληρώθηκε"').setBackground('#DDF1E4').setRanges([all]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=LEFT($' + L + '2,10)="Εξοφλημένη"').setBackground('#DDF1E4').setRanges([all]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$' + L + '2="Μερική"').setBackground('#FFF2CC').setRanges([all]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$' + L + '2="Ανοιχτή"').setBackground('#FBEDED').setRanges([all]).build());
