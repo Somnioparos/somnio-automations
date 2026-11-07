@@ -17,8 +17,8 @@
  * Κανόνες:
  *   - Μόνο κρατήσεις με check-in >= MIN_CHECKIN (Config). Και οι μελλοντικές.
  *   - Στήλες πάντα από τα ονόματα των headers. Στήλες που προσθέτει χρήστης διατηρούνται.
- *   - Χειροκίνητες στήλες (κίτρινες) δεν πατιούνται ποτέ από το sync. Passport/email/τηλέφωνο/χώρα
- *     προσυμπληρώνονται από Hosthub μόνο όταν είναι κενές.
+ *   - Στο Bookings ΔΕΝ γράφει κανείς. Διαβατήριο, email, τηλέφωνο, χώρα, σημειώσεις → στη Hosthub.
+ *     Ειδικό ποσοστό προμήθειας: γραμμή «COMMISSION: 15» στα Notes της κράτησης στη Hosthub.
  *   - Agency: γραμμή «AGENCY: <όνομα>» στα Notes της κράτησης στη Hosthub → στήλη Agency.
  *   - Airbnb + ιδιοκτήτης Εταιρεία: η προμήθεια Airbnb επανατιμολογείται (στήλες Airbnb_Fee_*).
  *   - Noma δεν υπάρχει πια.
@@ -40,14 +40,14 @@ var COLS = [
   ['no', 'sys'], ['Month', 'sys'], ['Check_in', 'sys'], ['Check_out', 'sys'], ['Nights', 'sys'],
   ['Residence', 'sys'], ['Platform', 'sys'], ['Agency', 'sys'], ['Status', 'sys'],
   ['Reservation ID', 'sys'], ['Guest name', 'sys'], ['Guests', 'sys'], ['ID_Type', 'sys'],
-  ['Passport_AFM', 'pre'], ['Guest_Email', 'pre'], ['Guest_Phone', 'pre'], ['Guest_Country', 'pre'],
+  ['Passport_AFM', 'sys'], ['Guest_Email', 'sys'], ['Guest_Phone', 'sys'], ['Guest_Country', 'sys'],
   ['Booking value', 'sys'], ['Cleaning fee', 'sys'], ['Total value', 'sys'], ['Guest paid', 'sys'],
   ['Total payout', 'sys'], ['Payment charges', 'sys'], ['Service fee host', 'sys'], ['Currency', 'sys'],
   ['Net_Price', 'sys'], ['VAT', 'sys'], ['City_Tax', 'sys'], ['Env_Fee', 'sys'], ['Price_AADE', 'sys'], ['Gross_Value', 'sys'],
   ['Owner_Type', 'sys'], ['Comm_Rate', 'sys'], ['Comm_Base', 'sys'], ['Comm_Net', 'sys'], ['Comm_VAT', 'sys'], ['Comm_Total', 'sys'],
   ['Airbnb_Fee_Recharge', 'sys'], ['Airbnb_Fee_VAT', 'sys'], ['Invoice_Total', 'sys'], ['Owner_Payable', 'sys'],
   ['Company_Revenue', 'sys'],
-  ['Comm_Rate_Override', 'man'], ['Comments', 'man'],
+  ['Comm_Rate_Override', 'sys'],
   ['Hosthub_Notes', 'sys'], ['Hosthub_Name', 'sys'], ['Listing_ID', 'sys'], ['Source', 'sys'],
   ['is_visible', 'sys'], ['cancelled_at', 'sys'], ['event_id', 'sys'], ['hh_updated', 'sys'], ['synced_at', 'sys']
 ];
@@ -124,6 +124,13 @@ function guestsStr_(e) {
   if (a + c + i > 0) return [a ? a + 'A' : '', c ? c + 'C' : '', i ? i + 'I' : ''].filter(String).join('/');
   return (Number(e.guest_number) > 0) ? String(e.guest_number) : '';
 }
+/** «COMMISSION: 15» ή «ΠΡΟΜΗΘΕΙΑ: 15» στα Notes → 15 (ειδικό ποσοστό για αυτή την κράτηση). */
+function rateFromNotes_(notes) {
+  var plain = String(notes || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();   // χωρίς τόνους
+  var m = /(?:COMMISSION|ΠΡΟΜΗΘΕΙΑ)\s*:\s*([0-9]+(?:[.,][0-9]+)?)\s*%?/.exec(plain);
+  return m ? m[1].replace(',', '.') : '';
+}
+
 function agencyFromNotes_(notes) {
   var m = /AGENCY\s*:\s*([^\r\n]+)/i.exec(String(notes || ''));
   return m ? m[1].trim() : '';
@@ -326,8 +333,12 @@ function rowFromEvent_(e, gr, detail, ex) {
   var dFrom = e.date_from || '', dTo = e.date_to || '';
   var notes = (detail && detail.notes !== undefined) ? detail.notes : (e.notes !== undefined ? e.notes : (ex ? ex['Hosthub_Notes'] : ''));
   var cancelled = e.is_visible === false || !!e.cancelled_at;
-  var pre = function (col, apiVal) {
-    return (ex && String(ex[col] || '') !== '') ? ex[col] : (apiVal || '');
+  // Η Hosthub είναι η πηγή: ό,τι γράφεται εκεί περνά εδώ. Αν η Hosthub είναι κενή, κρατιέται η παλιά τιμή.
+  var src = {};
+  for (var k1 in e) src[k1] = e[k1];
+  if (detail) for (var k2 in detail) if (detail[k2] !== undefined && detail[k2] !== null && detail[k2] !== '') src[k2] = detail[k2];
+  var hh = function (col, apiVal) {
+    return (apiVal !== undefined && apiVal !== null && String(apiVal) !== '') ? apiVal : (ex ? ex[col] || '' : '');
   };
   var o = {};
   if (ex) for (var kk in ex) o[kk] = ex[kk];          // κρατά και στήλες που πρόσθεσε χρήστης
@@ -343,11 +354,11 @@ function rowFromEvent_(e, gr, detail, ex) {
   o['Reservation ID'] = e.reservation_id || '';
   o['Guest name'] = e.guest_name || '';
   o['Guests'] = guestsStr_(e);
-  o['ID_Type'] = e.guest_identification_type || e.identification_type || '';
-  o['Passport_AFM'] = pre('Passport_AFM', e.guest_identification_number || e.identification_number);
-  o['Guest_Email'] = pre('Guest_Email', e.guest_email);
-  o['Guest_Phone'] = pre('Guest_Phone', e.guest_phone);
-  o['Guest_Country'] = pre('Guest_Country', SomnioCountries.name(e.guest_country));
+  o['ID_Type'] = hh('ID_Type', src.guest_identification_type || src.identification_type);
+  o['Passport_AFM'] = hh('Passport_AFM', src.guest_identification_number || src.identification_number);
+  o['Guest_Email'] = hh('Guest_Email', src.guest_email);
+  o['Guest_Phone'] = hh('Guest_Phone', src.guest_phone);
+  o['Guest_Country'] = hh('Guest_Country', SomnioCountries.name(src.guest_country));
   o['Booking value'] = money_(e.booking_value); o['Cleaning fee'] = money_(e.cleaning_fee);
   o['Total value'] = money_(e.total_value); o['Guest paid'] = money_(e.guest_paid);
   o['Total payout'] = money_(e.total_payout); o['Payment charges'] = money_(e.payment_charges);
@@ -357,8 +368,7 @@ function rowFromEvent_(e, gr, detail, ex) {
     o['Net_Price'] = money_(gr.net_value); o['VAT'] = money_(gr.vat); o['City_Tax'] = money_(gr.accommodation_tax);
     o['Env_Fee'] = money_(gr.climate_tax); o['Price_AADE'] = money_(gr.aade_value); o['Gross_Value'] = money_(gr.gross_booking_value);
   }
-  o['Comm_Rate_Override'] = ex ? ex['Comm_Rate_Override'] : '';
-  o['Comments'] = ex ? ex['Comments'] : '';
+  o['Comm_Rate_Override'] = rateFromNotes_(notes);   // γραμμή «COMMISSION: 15» στα Notes της Hosthub
   o['Source'] = 'Hosthub';
   o['is_visible'] = e.is_visible;
   o['cancelled_at'] = e.cancelled_at ? new Date(e.cancelled_at * 1000) : '';
@@ -546,7 +556,7 @@ function writeChecks_(rows, P, D, extra) {
     if (!o['Owner_Type']) list.push([res, ci, 'Λείπει Owner_Type στο Master Properties → δεν υπολογίζεται προμήθεια']);
     if (o['Agency'] && !P.agencies[key_(o['Agency'])]) list.push([res, ci, 'Άγνωστη agency «' + o['Agency'] + '» — πρόσθεσέ τη στο tab Agencies']);
     if (ci && ci <= horizon && !String(o['Passport_AFM'] || '').trim()) {
-      list.push([res, ci, (ci < today ? 'Έγινε check-in χωρίς' : 'Λείπει') + ' διαβατήριο/ΑΦΜ · ' + o['Guest name'] + ' (' + o['Platform'] + ')']);
+      list.push([res, ci, (ci < today ? 'Έγινε check-in χωρίς' : 'Λείπει') + ' διαβατήριο/ΑΦΜ (συμπλήρωσε στη Hosthub) · ' + o['Guest name'] + ' (' + o['Platform'] + ')']);
     }
   });
   list.sort(function (a, b) { return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0; });
