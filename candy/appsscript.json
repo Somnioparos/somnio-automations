@@ -1,0 +1,15 @@
+{
+  "timeZone": "Europe/Athens",
+  "dependencies": {
+    "libraries": [
+      {
+        "userSymbol": "SomnioCore",
+        "libraryId": "1fIqHFWVPWumT69EOerF2ONqwZjp16iIUtukkOdEn7o7iP24Nm4bBUaQ4",
+        "version": "0",
+        "developmentMode": true
+      }
+    ]
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8"
+}
