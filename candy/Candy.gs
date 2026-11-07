@@ -96,6 +96,7 @@ function onOpen() {
     .addItem('2. Ανανέωση λιστών', 'refreshListsMenu')
     .addItem('3. Έλεγχος', 'checkMenu')
     .addItem('4. Συμπλήρωση όλων των γραμμών', 'fillAllMenu')
+    .addItem('5. Ανανέωση εισπράξεων κρατήσεων', 'syncReceiptsMenu')
     .addSeparator()
     .addItem('Καθημερινή ανανέωση ON', 'dailyOn')
     .addItem('Καθημερινή ανανέωση OFF', 'dailyOff')
@@ -170,9 +171,10 @@ function onEditInstalled(e) {
   if (!e || !e.range) return;
   var sh = e.range.getSheet(), name = sh.getName();
   if (e.range.getRow() < 2) return;
-  if ([T.EXP, T.MOV, T.CON].indexOf(name) === -1) return;
+  if ([T.EXP, T.MOV, T.CON, REC_TAB].indexOf(name) === -1) return;
   try {
-    fillRows_(sh, e.range.getRow(), e.range.getNumRows(), lists_(sh.getParent()));
+    if (name === REC_TAB) fillReceiptRows_(sh, e.range.getRow(), e.range.getNumRows());
+    else fillRows_(sh, e.range.getRow(), e.range.getNumRows(), lists_(sh.getParent()));
   } catch (err) {
     try { SomnioCore.logRun('Candy · Αυτόματη συμπλήρωση', 'ERROR', '', name + ' γρ. ' + e.range.getRow() + ': ' + err.message); } catch (ignored) {}
   }
@@ -342,14 +344,16 @@ function setupCandy() {
 
     var res = refreshLists_();
     applyValidations_(ss);
+    setupReceipts_(ss);
+    try { syncReceipts_(); } catch (re) { /* αν το Master File δεν είναι έτοιμο, γεμίζει με το μενού 5 */ }
     installEditTrigger_();
 
     // σειρά tabs
-    [T.EXP, T.MOV, T.CON, T.FC, T.CHECK, T.SUP, T.CAT, T.ACC, T.PPL, T.PROP].forEach(function (t, i) {
+    [REC_TAB, T.EXP, T.MOV, T.CON, T.FC, T.CHECK, T.SUP, T.CAT, T.ACC, T.PPL, T.PROP].forEach(function (t, i) {
       var sh = sheet_(ss, t); if (sh) { ss.setActiveSheet(sh); ss.moveActiveSheet(i + 1); }
     });
     [T.SUP, T.CAT, T.ACC, T.PPL, T.PROP].forEach(function (t) { var sh = sheet_(ss, t); if (sh) sh.setTabColor('#999999'); });
-    ss.setActiveSheet(exp);
+    ss.setActiveSheet(sheet_(ss, REC_TAB));
     return { count: res.suppliers, detail: 'tabs + λίστες · προμηθευτές ' + res.suppliers + ' · κέντρα κόστους ' + res.centres };
   });
   SpreadsheetApp.getUi().alert('Στήσιμο ΟΚ.\n\nΣυμπλήρωσε στο tab «Λογαριασμοί» τη στήλη «Υπόλοιπο 1/1/2027» (για το Cash flow) όταν είναι γνωστά.');
@@ -511,20 +515,20 @@ function checkMenu() {
   if (res) SpreadsheetApp.getUi().alert('Έλεγχος: ' + res.issues + ' εκκρεμότητες. Δες το tab «' + T.CHECK + '».');
 }
 
-// -- ΚΑΘΗΜΕΡΙΝΗ ΑΝΑΝΕΩΣΗ (λίστες + έλεγχος, 07:15) ----------------------------------
+// -- ΚΑΘΗΜΕΡΙΝΗ ΑΝΑΝΕΩΣΗ (λίστες + εισπράξεις + έλεγχος, 08:15) ----------------------------------
 
 function dailyJob() {
   SomnioCore.runJob('Candy · Καθημερινό', function () {
-    var a = refreshLists_(), b = check_();
-    return { count: b.issues, detail: 'ακίνητα ' + a.props + ' · εκκρεμότητες ' + b.issues };
+    var a = refreshLists_(), c = syncReceipts_(), b = check_();
+    return { count: b.issues, detail: 'ακίνητα ' + a.props + ' · κρατήσεις ' + c.rows + ' (ανοιχτές ' + c.open + ') · εκκρεμότητες ' + b.issues };
   });
 }
 function dailyOn() {
   dailyOff_();
-  ScriptApp.newTrigger('dailyJob').timeBased().everyDays(1).atHour(7).nearMinute(15)
+  ScriptApp.newTrigger('dailyJob').timeBased().everyDays(1).atHour(8).nearMinute(15)
     .inTimezone(String(SomnioCore.cfg('TIMEZONE', false) || 'Europe/Athens')).create();
-  SomnioCore.logRun('Candy · Καθημερινό', 'OK', '', 'ON 07:15');
-  SpreadsheetApp.getUi().alert('Καθημερινή ανανέωση ON (~07:15): λίστες ακινήτων + Έλεγχος.');
+  SomnioCore.logRun('Candy · Καθημερινό', 'OK', '', 'ON 08:15');
+  SpreadsheetApp.getUi().alert('Καθημερινή ανανέωση ON (~08:15, μετά το sync του Master File): λίστες, εισπράξεις κρατήσεων, Έλεγχος.');
 }
 function dailyOff() { dailyOff_(); SpreadsheetApp.getUi().alert('Καθημερινή ανανέωση OFF.'); }
 function dailyOff_() { ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'dailyJob') ScriptApp.deleteTrigger(t); }); }
