@@ -294,12 +294,24 @@ function writeRows_(sh, hdr, rows) {
 
 // -- HOSTHUB ---------------------------------------------------------------------
 
-/** Global λίστα events. sinceUnix > 0 → μόνο όσα άλλαξαν από τότε (οδηγία Hosthub). */
+/**
+ * Events από Hosthub.
+ *  - sinceUnix > 0 (αυξητικό): global λίστα με updated_gte → μόνο όσα άλλαξαν (οδηγία Hosthub).
+ *  - sinceUnix = 0 (πλήρες): ΑΝΑ ΑΚΙΝΗΤΟ, γιατί η global λίστα χωρίς φίλτρο δεν φέρνει όλο το ιστορικό.
+ */
 function fetchEvents_(sinceUnix) {
   var key = apiKey_();
-  var url = '/calendar-events?is_visible=all&limit=' + PAGE_LIMIT + (sinceUnix > 0 ? '&updated_gte=' + sinceUnix : '');
+  if (sinceUnix > 0) return pages_('/calendar-events?is_visible=all&limit=' + PAGE_LIMIT + '&updated_gte=' + sinceUnix, key, 40);
+  var all = [];
+  SomnioCore.hosthubRentals(key).forEach(function (r) {
+    all = all.concat(pages_('/rentals/' + r.id + '/calendar-events?is_visible=all&limit=' + PAGE_LIMIT, key, 15));
+  });
+  return all;
+}
+
+function pages_(url, key, max) {
   var all = [], prev = '', guard = 0;
-  while (url && url !== prev && guard++ < 40) {
+  while (url && url !== prev && guard++ < max) {
     var page = SomnioCore.hosthubGet(url, key);
     var d = page.data || [];
     all = all.concat(d);
@@ -440,11 +452,10 @@ function sync_() {
   rows = rows.concat(dc.rows);
   rows.forEach(function (o) { derive_(o, P, D); });
   writeRows_(sh, data.hdr, rows);
+  var issues = writeChecks_(rows, P, D, dc.issues);
 
   if (partial) props.setProperty('SYNC_PARTIAL', '1');
   else { props.deleteProperty('SYNC_PARTIAL'); props.setProperty('LAST_SYNC_TS', String(runStart)); }
-
-  var issues = writeChecks_(rows, P, D, dc.issues);
   return {
     added: added, updated: updated, partial: partial,
     detail: (since > 0 ? 'αυξητικό' : 'ΠΛΗΡΕΣ') + ' · events ' + events.length + ' · νέες ' + added + ' · αλλαγμένες ' + updated +
@@ -539,8 +550,7 @@ function writeChecks_(rows, P, D, extra) {
     }
   });
   list.sort(function (a, b) { return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0; });
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(TAB_CHECK) || ss.insertSheet(TAB_CHECK);
+  var sh = sheetByName_(TAB_CHECK);
   sh.clearContents();
   sh.getRange(1, 1, 1, 3).setValues([['Ακίνητο', 'Check-in', 'Εκκρεμότητα · τελευταίος έλεγχος ' + today]])
     .setFontWeight('bold').setBackground('#202D5D').setFontColor('#FFFFFF');
@@ -610,10 +620,22 @@ function setupMasterFile() {
     dc.getRange(1, dm['Προμήθεια (ποσό)'] + 1).setNote('Προαιρετικό: σταθερό ποσό προμήθειας. Κενό = Ποσό × ποσοστό.');
     dc.getRange(1, dm['Comm_Rate_Override'] + 1).setNote('Προαιρετικό: π.χ. 15 για 15%. Κενό = ποσοστό του ακινήτου.');
 
-    ss.getSheetByName(TAB_CHECK) || ss.insertSheet(TAB_CHECK);
+    sheetByName_(TAB_CHECK);
     return { count: COLS.length, detail: 'Bookings + Direct_Cash + Έλεγχος' };
   });
   SpreadsheetApp.getUi().alert('Στήσιμο ΟΚ. Επόμενο: «2. Sync τώρα».');
+}
+
+/** Βρίσκει tab με όνομα (ανεκτικό σε τόνους/κενά)· αν δεν υπάρχει, το φτιάχνει. */
+function sheetByName_(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(name);
+  if (sh) return sh;
+  var want = String(name).normalize('NFC').trim().toLowerCase();
+  var found = ss.getSheets().filter(function (s) { return s.getName().normalize('NFC').trim().toLowerCase() === want; })[0];
+  if (found) return found;
+  try { return ss.insertSheet(name); }
+  catch (e) { SpreadsheetApp.flush(); return ss.getSheetByName(name) || ss.getSheets().filter(function (s) { return s.getName().normalize('NFC').trim().toLowerCase() === want; })[0]; }
 }
 
 function ensureHeaders_(sh, names) {
