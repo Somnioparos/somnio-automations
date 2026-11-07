@@ -151,6 +151,44 @@ function runJob(job, fn) {
   }
 }
 
+// -- HOSTHUB API -----------------------------------------------------------------
+// Το κλειδί το δίνει το Sheet που καλεί (από τα δικά του Script Properties).
+
+var HOSTHUB_BASE = 'https://app.hosthub.com/api/2019-03-01';
+
+/** GET στη Hosthub με αναμονή 1,2" ανά κλήση και επανάληψη σε rate limit (429). */
+function hosthubGet(path, apiKey) {
+  if (!apiKey) throw new Error('Λείπει το HOSTHUB_API_KEY στα Script Properties του αρχείου.');
+  var url = String(path).indexOf('http') === 0 ? path : HOSTHUB_BASE + path;
+  for (var attempt = 0; attempt < 5; attempt++) {
+    Utilities.sleep(attempt === 0 ? 1200 : Math.min(60000, 8000 * Math.pow(2, attempt - 1)));
+    var res = UrlFetchApp.fetch(url, {
+      method: 'get', muteHttpExceptions: true,
+      headers: { 'Authorization': String(apiKey).trim(), 'Accept': 'application/json' }
+    });
+    var code = res.getResponseCode();
+    if (code === 429) continue;
+    if (code >= 400) throw new Error('Hosthub HTTP ' + code + ' @ ' + url + ' — ' + (res.getContentText() || '').slice(0, 300));
+    return JSON.parse(res.getContentText());
+  }
+  throw new Error('Hosthub: rate limit μετά από 5 προσπάθειες @ ' + url);
+}
+
+/** Όλα τα ακίνητα (rentals) της Hosthub: [{ id, name, ... }]. */
+function hosthubRentals(apiKey) {
+  var out = [], seen = {}, url = '/rentals', prev = '', guard = 0;
+  while (url && url !== prev && guard++ < 20) {
+    var page = hosthubGet(url, apiKey);
+    var d = page.data || [];
+    d.forEach(function (r) { if (!seen[r.id]) { seen[r.id] = 1; out.push(r); } });
+    if (!d.length) break;
+    prev = url;
+    var nav = page.navigation || {};
+    url = nav.next || nav.previous || null;   // η Hosthub σελιδοποιεί με next/previous
+  }
+  return out;
+}
+
 // -- ΗΜΕΡΟΜΗΝΙΕΣ ----------------------------------------------------------------
 
 /** 'YYYY-MM-DD' στη ζώνη ώρας του Config. */
