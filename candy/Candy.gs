@@ -12,7 +12,7 @@
  *   3. Έλεγχος                       — tab «Έλεγχος»: ελλείψεις, νέοι προμηθευτές, οφειλές σε συνεταίρους
  *   4. Συμπλήρωση όλων των γραμμών    — ξανατρέχει τα αυτόματα πεδία σε όλες τις γραμμές
  *
- * Καθώς γράφεις σε μια γραμμή, συμπληρώνονται αυτόματα (onEdit): ID, κατηγορία/υποκατηγορία από τον
+ * Καθώς γράφεις σε μια γραμμή, συμπληρώνονται αυτόματα (installable trigger onEditInstalled): ID, κατηγορία/υποκατηγορία από τον
  * προμηθευτή, Φύση, Πλήρωσε, ΦΠΑ/Καθαρό/Σύνολο, Χρεώνεται σε, Ημ/νία πληρωμής, Οφειλή σε.
  * Ό,τι έχεις ήδη γράψει ΔΕΝ αλλάζει — συμπληρώνονται μόνο τα κενά (εκτός από τα γκρι πεδία).
  */
@@ -162,14 +162,26 @@ function lists_(ss) {
 
 // -- ΑΥΤΟΜΑΤΗ ΣΥΜΠΛΗΡΩΣΗ ΓΡΑΜΜΩΝ ---------------------------------------------------
 
-function onEdit(e) {
+/**
+ * Installable trigger «Όταν γίνεται αλλαγή» (το στήνει το «1. Στήσιμο»). Δεν χρησιμοποιούμε το απλό onEdit,
+ * γιατί σε αρχεία με βιβλιοθήκη/άδειες μπορεί να μην τρέχει χωρίς να φαίνεται κανένα σφάλμα.
+ */
+function onEditInstalled(e) {
+  if (!e || !e.range) return;
+  var sh = e.range.getSheet(), name = sh.getName();
+  if (e.range.getRow() < 2) return;
+  if ([T.EXP, T.MOV, T.CON].indexOf(name) === -1) return;
   try {
-    if (!e || !e.range) return;
-    var sh = e.range.getSheet(), name = sh.getName();
-    if (e.range.getRow() < 2) return;
-    if ([T.EXP, T.MOV, T.CON].indexOf(name) === -1) return;
     fillRows_(sh, e.range.getRow(), e.range.getNumRows(), lists_(sh.getParent()));
-  } catch (err) { /* ποτέ μην εμποδίζεις την πληκτρολόγηση */ }
+  } catch (err) {
+    try { SomnioCore.logRun('Candy · Αυτόματη συμπλήρωση', 'ERROR', '', name + ' γρ. ' + e.range.getRow() + ': ' + err.message); } catch (ignored) {}
+  }
+}
+
+function installEditTrigger_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'onEditInstalled') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('onEditInstalled').forSpreadsheet(ss).onEdit().create();
 }
 
 /** Συμπληρώνει τα αυτόματα πεδία στις γραμμές [start, start+n). */
@@ -330,6 +342,7 @@ function setupCandy() {
 
     var res = refreshLists_();
     applyValidations_(ss);
+    installEditTrigger_();
 
     // σειρά tabs
     [T.EXP, T.MOV, T.CON, T.FC, T.CHECK, T.SUP, T.CAT, T.ACC, T.PPL, T.PROP].forEach(function (t, i) {
