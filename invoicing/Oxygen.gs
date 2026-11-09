@@ -229,7 +229,17 @@ function refreshMarks(silent) {
     if (res.code !== 200) return;
     var md = ((res.body.data || res.body) || {}).mydata || {};
     var val = md.mark ? String(md.mark) : md.errors ? '⚠ myDATA: ' + String(md.errors.response || '').slice(0, 300) : '';
-    if (val && val !== mk) { sh.getRange(i + 2, m['ΜΑΡΚ'] + 1).setNumberFormat('@').setValue(val); if (md.mark) n++; else err++; }
+    if (!val || val === mk) return;
+    sh.getRange(i + 2, m['ΜΑΡΚ'] + 1).setNumberFormat('@').setValue(val);
+    if (!md.mark) { err++; return; }
+    n++;
+    // νέο PDF, τώρα με ΜΑΡΚ + QR (αν υπήρχε παλιό χωρίς ΜΑΡΚ, μένει στον φάκελο με «_χωρίς_ΜΑΡΚ» στο όνομα)
+    try {
+      var old = String(r[m['PDF']] || '').match(/[-\w]{25,}/);
+      if (old) { var f = DriveApp.getFileById(old[0]); if (!/χωρίς_ΜΑΡΚ/.test(f.getName())) f.setName(f.getName().replace(/\.pdf$/i, '') + '_χωρίς_ΜΑΡΚ.pdf'); }
+      var g = function (c) { return r[m[c]]; };
+      sh.getRange(i + 2, m['PDF'] + 1).setValue(oxySavePdf_(id, invPdfName_(g)));
+    } catch (e) { sh.getRange(i + 2, m['PDF'] + 1).setValue('⚠ ' + e.message.slice(0, 200)); }
   });
   if (!silent) SpreadsheetApp.getUi().alert('ΜΑΡΚ: ενημερώθηκαν ' + n + (err ? ' · με λάθος myDATA ' + err + ' (δες τη στήλη ΜΑΡΚ)' : '') + '.');
   return n;

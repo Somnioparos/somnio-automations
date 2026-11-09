@@ -303,6 +303,8 @@ function invPick_() {
   };
 }
 
+function invPdfName_(g) { return String(g('Αρ. παραστατικού')).replace(/\s+/g, '_') + '_' + String(g('Αιτιολογία κατάθεσης')); }
+
 /** Γράφει το Oxygen_Contact_ID στο Master Properties (σε όλα τα ακίνητα του ίδιου ιδιοκτήτη χωρίς id). */
 function invSaveContact_(owner, res, cid) {
   var mp = SomnioCore.openFile('FILE_MASTER_PROPERTIES'), sh = mp.getSheetByName('Properties') || mp.getSheets()[0];
@@ -351,10 +353,14 @@ function issueSelected() {
       P.sh.getRange(P.row, SomnioCore.headerMap(P.sh)['ΜΑΡΚ'] + 1).setNumberFormat('@');
       P.set('ΜΑΡΚ', md.mark ? String(md.mark) : (md.errors ? '⚠ myDATA: ' + String(md.errors.response || '').slice(0, 300) : '(αναμένεται)'));
       P.set('Κατάσταση', 'Εκδόθηκε');
+      // Το PDF κατεβαίνει μόνο όταν υπάρχει ΜΑΡΚ (αλλιώς τυπώνεται χωρίς ΜΑΡΚ/QR) — αλλιώς το φέρνει το «Φέρε ΜΑΡΚ».
       var pdf = '';
-      try { pdf = oxySavePdf_(inv.id, String(g('Αρ. παραστατικού')).replace(/\s+/g, '_') + '_' + String(g('Αιτιολογία κατάθεσης'))); P.set('PDF', pdf); }
-      catch (e) { P.set('PDF', '⚠ ' + e.message.slice(0, 200)); }
-      msg = 'Εκδόθηκε ' + g('Αρ. παραστατικού') + '\nΜΑΡΚ: ' + g('ΜΑΡΚ') + '\nPDF: ' + (pdf ? 'αποθηκεύτηκε' : 'ΔΕΝ αποθηκεύτηκε — δες τη στήλη PDF') +
+      if (md.mark) {
+        try { pdf = oxySavePdf_(inv.id, invPdfName_(g)); P.set('PDF', pdf); }
+        catch (e) { P.set('PDF', '⚠ ' + e.message.slice(0, 200)); }
+      }
+      msg = 'Εκδόθηκε ' + g('Αρ. παραστατικού') + '\nΜΑΡΚ: ' + g('ΜΑΡΚ') +
+        '\nPDF: ' + (pdf ? 'αποθηκεύτηκε' : md.mark ? 'ΔΕΝ αποθηκεύτηκε — δες τη στήλη PDF' : 'θα κατέβει μόλις έρθει ο ΜΑΡΚ («6. Φέρε ΜΑΡΚ»)') +
         '\nΣύνολο Oxygen: ' + invEuro_(inv.total_amount) + (Math.abs(invNum_(inv.total_amount) - invNum_(g('Σύνολο παραστατικού'))) > 0.009 ? '  ⚠ ΔΙΑΦΟΡΑ με το φύλλο!' : ' ✓');
       return { count: 1, detail: (prod ? 'PROD ' : 'SANDBOX ') + g('Αρ. παραστατικού') + ' · ' + g('Ακίνητο') + ' · ' + g('Επισκέπτης') };
     });
@@ -371,7 +377,8 @@ function sendSelected() {
   var g = P.g, prod = oxyIsProd_();
   if (g('Email στάλθηκε')) { ui.alert('Έχει ήδη σταλεί (' + invDMY_(g('Email στάλθηκε')) + ').'); return; }
   var fileId = function (url) { var x = String(url || '').match(/[-\w]{25,}/); return x ? x[0] : null; };
-  if (!fileId(g('PDF'))) { ui.alert('Δεν υπάρχει PDF παραστατικού — κάνε πρώτα «4. Έκδοση».'); return; }
+  if (!/^\d{10,}$/.test(String(g('ΜΑΡΚ')))) { ui.alert('Δεν υπάρχει ακόμα ΜΑΡΚ — πάτα «6. Φέρε ΜΑΡΚ από Oxygen» (ή στείλε το στο myDATA από το Oxygen).'); return; }
+  if (!fileId(g('PDF'))) { ui.alert('Δεν υπάρχει PDF παραστατικού — πάτα «6. Φέρε ΜΑΡΚ από Oxygen».'); return; }
   var me = Session.getActiveUser().getEmail();
   var to = prod ? String(g('Email ιδιοκτήτη') || '').trim() : me;
   if (!to) { ui.alert('Λείπει το email του ιδιοκτήτη (Master Properties › Owner_Email).'); return; }
