@@ -40,20 +40,32 @@ function oxyCall_(method, path, payload) {
 function oxygenTest() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var paths = ['/contacts?per_page=3', '/numbering-sequences', '/taxes', '/measurement-units', '/payment-methods', '/invoices?per_page=1'];
-  var out = [['Endpoint', 'HTTP', 'Απάντηση (αρχή)']];
+  // Μία γραμμή ανά εγγραφή, με μικρά κελιά (τα πολύ μεγάλα κελιά δεν διαβάζονται εύκολα).
+  var out = [['Endpoint', 'HTTP', 'id', 'Όνομα', 'Πεδία (JSON, αρχή)']], okN = 0;
   paths.forEach(function (p) {
     try {
       var r = oxyCall_('get', p);
-      out.push([p, r.code, (typeof r.body === 'string' ? r.body : JSON.stringify(r.body)).slice(0, 45000)]);
-    } catch (e) { out.push([p, 'σφάλμα', e.message]); }
+      if (r.code === 200) okN++;
+      var b = r.body, list = Array.isArray(b) ? b : (b && Array.isArray(b.data) ? b.data : null);
+      if (!list) {
+        var t = typeof b === 'string' ? b : JSON.stringify(b);
+        for (var i = 0; i < Math.min(t.length, 6000); i += 1500) out.push([p, r.code, '', '(κομμάτι ' + (i / 1500 + 1) + ')', t.slice(i, i + 1500)]);
+        return;
+      }
+      if (!list.length) out.push([p, r.code, '', '(κενή λίστα)', '']);
+      list.slice(0, 25).forEach(function (it, n) {
+        var name = it.name || it.title || it.description || it.code || it.company_name || it.surname || '';
+        var js = JSON.stringify(it);
+        out.push([p, r.code, String(it.id || ''), String(name).slice(0, 100), js.slice(0, 1500)]);
+        if (n === 0 && js.length > 1500) out.push([p, r.code, String(it.id || ''), '(συνέχεια 1ης εγγραφής)', js.slice(1500, 3000)]);
+      });
+    } catch (e) { out.push([p, 'σφάλμα', '', '', e.message]); }
   });
   var sh = ss.getSheetByName('Oxygen') || ss.insertSheet('Oxygen');
   sh.clear();
-  sh.getRange(1, 1, out.length, 3).setValues(out);
-  sh.getRange(1, 1, 1, 3).setFontWeight('bold');
-  sh.setColumnWidth(1, 220); sh.setColumnWidth(3, 900);
-  sh.getRange(2, 3, out.length - 1, 1).setWrap(true);
-  var okN = out.filter(function (r) { return r[1] === 200; }).length;
+  sh.getRange(1, 1, out.length, 5).setNumberFormat('@').setValues(out);
+  sh.getRange(1, 1, 1, 5).setFontWeight('bold');
+  sh.setColumnWidth(1, 200); sh.setColumnWidth(3, 260); sh.setColumnWidth(4, 220); sh.setColumnWidth(5, 700);
   SomnioCore.logRun('Owner Invoicing · Oxygen test', okN ? 'OK' : 'ERROR', okN, oxyBase_() + ' · ' + okN + '/' + paths.length + ' OK');
   SpreadsheetApp.getUi().alert('Oxygen (' + oxyBase_() + '): ' + okN + '/' + paths.length + ' απαντήσεις ΟΚ. Δες το tab «Oxygen».');
 }
