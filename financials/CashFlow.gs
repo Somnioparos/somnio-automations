@@ -142,13 +142,13 @@ function finBuildCash_(ss, candy) {
   M.push(row('  − Αποδόσεις σε ιδιοκτήτες (Direct Cash)', S.own));
   M.push(row('  − Λοιπές εκροές (Κινήσεις)', S.outMov));
   M.push(row('  ± Μεταφορές προς/από μη εταιρικούς λογαριασμούς', S.xfer));
-  var rNetA = M.length + 1; M.push(row('= Καθαρή ροή — πραγματική', netA));
+  var rNetA = M.length + 1; M.push(row('Καθαρή ροή — πραγματική', netA));
   M.push(row('  + Αναμενόμενες εισπράξεις κρατήσεων', S.fRec));
   M.push(row('  + Αναμενόμενο concierge', S.fConc));
   M.push(row('  + Προβλέψεις εισροών (tab Πρόβλεψη)', S.fIn));
   M.push(row('  − Αναμενόμενες αποδόσεις σε ιδιοκτήτες', S.fOwn));
   M.push(row('  − Προβλέψεις εκροών (tab Πρόβλεψη)', S.fOut));
-  var rNetF = M.length + 1; M.push(row('= Καθαρή ροή — πρόβλεψη', netF));
+  var rNetF = M.length + 1; M.push(row('Καθαρή ροή — πρόβλεψη', netF));
   var rEnd = M.length + 1; var ae = row('ΥΠΟΛΟΙΠΟ ΤΕΛΟΥΣ ΜΗΝΑ', end); ae[13] = finR2_(end[11]); M.push(ae);
   M.push(finBlank_(NC));
   var rPers = M.length + 1; M.push(row('Πληροφοριακά: πληρωμές από προσωπικούς λογαριασμούς (οφειλή σε συνεταίρους)', S.pers));
