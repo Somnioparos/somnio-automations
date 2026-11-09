@@ -141,7 +141,10 @@ function lgCompute_(src, today) {
 
 function updateLedger(silent) {
   var res = null;
-  var ok = SomnioCore.runJob('Owner Ledger · Ενημέρωση', function () {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) { if (!silent) SpreadsheetApp.getUi().alert('Τρέχει ήδη μια ενημέρωση — δοκίμασε σε λίγο.'); return; }
+  var ok;
+  try { ok = SomnioCore.runJob('Owner Ledger · Ενημέρωση', function () {
     var candy = SomnioCore.openFile('FILE_CANDY');
     var src = { props: lgTable_(candy, 'Ακίνητα'), receipts: lgTable_(candy, 'Εισπράξεις κρατήσεων'),
       expenses: lgTable_(candy, 'Έξοδα'), movements: lgTable_(candy, 'Κινήσεις'), accounts: lgTable_(candy, 'Λογαριασμοί') };
@@ -150,7 +153,7 @@ function updateLedger(silent) {
     var tot = res.owners.reduce(function (s, o) { return s + o.openDue; }, 0);
     return { count: res.owners.length, detail: 'ιδιοκτήτες ' + res.owners.length + ' · μας χρωστάνε ' + lgR2_(tot) + ' €' +
       (res.unknown.length ? ' · άγνωστοι: ' + res.unknown.join(', ') : '') };
-  });
+  }); } finally { lock.releaseLock(); }
   if (!silent) SpreadsheetApp.getUi().alert(ok ? 'Owner Ledger ΟΚ — ' + res.owners.length + ' ιδιοκτήτες.' : 'Σφάλμα — δες το Health στο Config.');
 }
 function updateLedgerAuto() { updateLedger(true); }
@@ -158,6 +161,7 @@ function updateLedgerAuto() { updateLedger(true); }
 function lgWrite_(ss, res) {
   var tz = String(SomnioCore.cfg('TIMEZONE', false) || 'Europe/Athens');
   ss.setSpreadsheetTimeZone(tz);
+  try { if (ss.getSpreadsheetLocale() !== 'el_GR') ss.setSpreadsheetLocale('el_GR'); } catch (e) {}
   // --- Υπόλοιπα
   var sh = ss.getSheetByName(LG.SUM) || ss.insertSheet(LG.SUM, 0);
   sh.clear(); sh.setConditionalFormatRules([]);
@@ -204,8 +208,10 @@ function lgWrite_(ss, res) {
     try { d.getRange(1, 1, res.lines.length + 1, DH.length).createFilter(); } catch (e) {}
   }
   d.setColumnWidth(1, 200); d.setColumnWidth(5, 260);
-  var s1 = ss.getSheetByName('Sheet1') || ss.getSheetByName('Φύλλο1');
-  if (s1 && s1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(s1);
+  try {
+    var s1 = ss.getSheetByName('Sheet1') || ss.getSheetByName('Φύλλο1');
+    if (s1 && s1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(s1);
+  } catch (e) {}
 }
 
 function lgTriggerOn() {
