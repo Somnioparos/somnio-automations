@@ -151,7 +151,10 @@ function oxyContact_(g) {
     var f = oxyList_('/contacts?vat=' + afm);
     if (f.length) return { id: f[0].id, created: false };
     var gs = {}, vr = oxyCall_('get', '/vat-check?vat=' + afm);
-    if (vr.code === 200 && vr.body) gs = vr.body.data || vr.body;
+    if (vr.code === 200 && vr.body && typeof vr.body === 'object') {
+      gs = vr.body.data || vr.body; if (Array.isArray(gs)) gs = gs[0] || {};
+    }
+    var vatInfo = 'ΓΓΠΣ (/vat-check): ' + (vr.code === 200 ? 'απάντησε ' + JSON.stringify(vr.body).slice(0, 300) : oxyErr_(vr).slice(0, 300));
     var a = oxyAddr_(g('Διεύθυνση'));
     var body = {
       type: 2, is_client: true, is_supplier: false, country: 'GR', vat_number: afm,
@@ -164,7 +167,7 @@ function oxyContact_(g) {
     if (g('Επωνυμία') && g('Επωνυμία') !== g('Ιδιοκτήτης')) body.company_name = String(g('Επωνυμία')).trim();
     var miss = ['company_name', 'tax_office', 'street', 'city', 'zip_code'].filter(function (k) { return !body[k]; });
     if (miss.length) throw new Error('Η ΓΓΠΣ δεν έδωσε (και λείπουν από το Master Properties): ' + miss.join(', ') +
-      '. Συμπλήρωσε Owner_Legal_Name / DOY / Owner_Address (π.χ. «Τσιμισκή 12, 54622 Θεσσαλονίκη»).');
+      '. Συμπλήρωσε στο Master Properties: DOY και Owner_Address με μορφή «Οδός Αριθμός, ΤΚ Πόλη» (π.χ. Τσιμισκή 12, 54622 Θεσσαλονίκη).\n\n' + vatInfo);
   } else {
     if (email) { var e = oxyList_('/contacts?email=' + encodeURIComponent(email)); if (e.length) return { id: e[0].id, created: false }; }
     var parts = String(g('Επωνυμία') || g('Ιδιοκτήτης') || '').trim().split(/\s+/);
