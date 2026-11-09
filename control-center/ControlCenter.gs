@@ -322,16 +322,54 @@ function ccWrite_(ss, d, res) {
 
 // -- ΕΝΤΟΛΕΣ -------------------------------------------------------------------------
 
+function ccSs_() {
+  var ss = null; try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) {}
+  return ss || SomnioCore.openFile('FILE_CONTROL_CENTER');
+}
+
+/** Αποθηκεύει τα αποτελέσματα ως JSON σε κρυφό tab «_web», για τη σελίδα-εφαρμογή (WebApp.gs). */
+function ccSaveWeb_(ss, d, res) {
+  var tz = String(SomnioCore.cfg('TIMEZONE', false) || 'Europe/Athens');
+  var f = function (v, p) { return v instanceof Date ? Utilities.formatDate(v, tz, p || 'dd/MM/yyyy') : v; };
+  var out = {
+    updated: Utilities.formatDate(d.now, tz, 'dd/MM/yyyy HH:mm'), year: d.year, activeProps: d.activeProps,
+    red: res.red, orange: res.orange, yellow: res.yellow, alerts: res.alerts, moves: res.moves,
+    money: res.money.map(function (m) { return [m[0], m[1], m[2], ccUrl_(m[3])]; }),
+    perf: res.perf, nowMonth: d.now.getFullYear() === d.year ? d.now.getMonth() : -1,
+    health: res.health.map(function (h) { return [h[0], h[1], f(h[2], 'dd/MM HH:mm'), h[3], h[4], h[5]]; }),
+    issues: res.issues.map(function (i) { return [i[0], i[1], String(i[2] || ''), f(i[3]), String(i[4] || ''), ccUrl_(i[5])]; }),
+    files: [['Master Properties', ccUrl_(d.ids.mp)], ['Master File', ccUrl_(d.ids.mf)], ['Candy', ccUrl_(d.ids.candy)],
+      ['Owner Ledger', ccUrl_(d.ids.ledger)], ['Owner Invoicing', ccUrl_(d.ids.invoicing)], ['Config', ccUrl_(d.ids.config)]]
+  };
+  var sh = ss.getSheetByName('_web') || ss.insertSheet('_web');
+  sh.clear(); sh.getRange(1, 1).setValue(JSON.stringify(out).slice(0, 49000)); sh.hideSheet();
+  return out;
+}
+
+/** Ενημέρωση χωρίς παράθυρα (για τη σελίδα-εφαρμογή). Επιστρέφει τα νέα δεδομένα. */
+function ccRefresh_() {
+  var web = null;
+  var ok = SomnioCore.runJob('Control Center · Ενημέρωση', function () {
+    var ss = ccSs_(), d = ccGather_(), res = ccBuild_(d);
+    ccWrite_(ss, d, res); web = ccSaveWeb_(ss, d, res);
+    return { count: res.issues.length, detail: '(από την εφαρμογή) 🔴 ' + res.red + ' · 🟠 ' + res.orange + ' · 🟡 ' + res.yellow };
+  });
+  if (!ok) throw new Error('Η ενημέρωση απέτυχε — δες το Health στο Config.');
+  return web;
+}
+
 function updateControlCenter(silent) {
   var res = null, d = null;
   var ok = SomnioCore.runJob('Control Center · Ενημέρωση', function () {
     d = ccGather_();
     res = ccBuild_(d);
-    ccWrite_(SpreadsheetApp.getActiveSpreadsheet() || SomnioCore.openFile('FILE_CONTROL_CENTER'), d, res);
+    var ss = ccSs_();
+    ccWrite_(ss, d, res);
+    ccSaveWeb_(ss, d, res);
     var mail = String(SomnioCore.cfg('CC_DAILY_EMAIL', false) || '').toUpperCase() === 'YES';
     if (silent && (res.red || mail)) {
       SomnioCore.alert((res.red ? '🔴 ' + res.red + ' θέματα' : 'Ημερήσια εικόνα') + ' — Control Center',
-        res.alerts.join('\n') + '\n\nΆνοιγμα: ' + ccUrl_(String(SomnioCore.cfg('FILE_CONTROL_CENTER', false) || '')));
+        res.alerts.join('\n') + '\n\nΆνοιγμα: ' + (ccAppUrl_() || ccUrl_(String(SomnioCore.cfg('FILE_CONTROL_CENTER', false) || ''))));
     }
     return { count: res.issues.length, detail: '🔴 ' + res.red + ' · 🟠 ' + res.orange + ' · 🟡 ' + res.yellow + ' · κινήσεις σήμερα/αύριο ' + res.moves.length };
   });
@@ -362,6 +400,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Somnio Control')
     .addItem('1. Στήσιμο / φρεσκάρισμα', 'setupControlCenter')
     .addItem('2. Ενημέρωση τώρα', 'updateControlCenter')
+    .addItem('3. Link εφαρμογής (για κινητό)', 'showAppLink')
     .addSeparator()
     .addItem('Αυτόματη ενημέρωση ON (~09:10)', 'ccTriggerOn')
     .addItem('Αυτόματη ενημέρωση OFF', 'ccTriggerOff')

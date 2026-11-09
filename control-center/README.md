@@ -7,4 +7,6 @@
 - Αυτόματα ~09:10. Email στο ALERT_EMAIL όταν υπάρχει 🔴 (ή κάθε μέρα με `CC_DAILY_EMAIL = YES`).
 - `CC_IGNORE` στο Config: λέξεις (με κόμμα) που κρύβουν εκκρεμότητες, π.χ. `AMA`.
 
-Στήσιμο: νέο Google Sheet «Control Center 2027» στο Shared Drive › 04 Outputs · Apps Script: ControlCenter.gs + appsscript.json (SomnioCore) · Config `FILE_CONTROL_CENTER` = id · μενού Somnio Control → 1. Στήσιμο → Αυτόματη ενημέρωση ON.
+Στήσιμο: νέο Google Sheet «Control Center 2027» στο Shared Drive › 04 Outputs · Apps Script: ControlCenter.gs + WebApp.gs + Index.html (HTML) + appsscript.json (SomnioCore) · Config `FILE_CONTROL_CENTER` = id · μενού Somnio Control → 1. Στήσιμο → Αυτόματη ενημέρωση ON.
+
+**Εφαρμογή (Web App):** Ανάπτυξη → Νέα ανάπτυξη → Εφαρμογή ιστού · Εκτέλεση ως: Εγώ · Πρόσβαση: Οποιοσδήποτε στο somnioestate.com. Διαβάζει το κρυφό tab «_web» (γράφεται σε κάθε Ενημέρωση). Μετά από αλλαγή κώδικα: Διαχείριση αναπτύξεων → Νέα έκδοση (ίδιο link).
