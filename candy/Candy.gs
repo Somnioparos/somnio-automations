@@ -42,7 +42,11 @@ var FC_COLS = [['Ημ/νία', 'man'], ['Περιγραφή', 'man'], ['Κατε
 // Είσοδος = μπαίνουν χρήματα στο «Σε λογαριασμό» · Έξοδος = βγαίνουν από το «Από λογαριασμό» · Μεταφορά = και τα δύο.
 var MOV_TYPES = [['Επιστροφή σε συνέταιρο', 'Έξοδος'], ['Μεταφορά μεταξύ λογαριασμών', 'Μεταφορά'],
   ['Εγγύηση (δόθηκε)', 'Έξοδος'], ['Εγγύηση (επιστράφηκε)', 'Είσοδος'], ['Κεφάλαιο (μπήκε)', 'Είσοδος'],
-  ['Δάνειο (μπήκε)', 'Είσοδος'], ['Δόση δανείου', 'Έξοδος'], ['Άλλη είσπραξη', 'Είσοδος'], ['Άλλη πληρωμή', 'Έξοδος']];
+  ['Δάνειο (μπήκε)', 'Είσοδος'], ['Δόση δανείου', 'Έξοδος'],
+  // Ιδιοκτήτες: πληρωμή που καλύπτει πολλές κρατήσεις/έξοδα μαζί (FIFO στο Owner Ledger).
+  // Πληρωμή από ιδιοκτήτη: Από = όνομα ιδιοκτήτη, Σε = δικός μας λογαριασμός · Απόδοση: Από = δικός μας, Σε = ιδιοκτήτης.
+  ['Πληρωμή από ιδιοκτήτη', 'Είσοδος'], ['Απόδοση σε ιδιοκτήτη', 'Έξοδος'],
+  ['Άλλη είσπραξη', 'Είσοδος'], ['Άλλη πληρωμή', 'Έξοδος']];
 function movFlow_(type) { for (var i = 0; i < MOV_TYPES.length; i++) if (MOV_TYPES[i][0] === type) return MOV_TYPES[i][1]; return ''; }
 var CHARGE_TO = ['Somnio', 'Ιδιοκτήτης'];
 var FC_DIR = ['Είσοδος', 'Έξοδος'];
@@ -308,8 +312,12 @@ function refreshLists_() {
     if (c && cats.indexOf(c) === -1) cats.push(c);
     if (sb && sb !== '—' && subs.indexOf(sb) === -1) subs.push(sb);
   });
+  var owners = [];
+  Object.keys(L.prop).forEach(function (k) { var o = L.prop[k].owner; if (o && owners.indexOf(o) === -1) owners.push(o); });
+  owners.sort();
   var cols = [['Κέντρα κόστους', centres], ['Προμηθευτές', sups], ['Λογαριασμοί', accs], ['Κατηγορίες', cats],
-              ['Υποκατηγορίες', subs], ['Άτομα', people], ['Ακίνητα', activeProps]];
+              ['Υποκατηγορίες', subs], ['Άτομα', people], ['Ακίνητα', activeProps],
+              ['Λογαριασμοί & ιδιοκτήτες', accs.concat(owners)]];
   var h = getOrCreate_(ss, T.HELP);
   h.clearContents();
   var maxLen = Math.max.apply(null, cols.map(function (c) { return c[1].length; }));
@@ -455,8 +463,8 @@ function applyValidations_(ss) {
   apply(exp, 'Χρεώνεται σε', fromList(CHARGE_TO));
   apply(exp, 'ΦΠΑ %', SpreadsheetApp.newDataValidation().requireValueInList(VAT_RATES, true).setAllowInvalid(true).build());
   apply(mov, 'Τι είναι', fromList(MOV_TYPES.map(function (t) { return t[0]; })));
-  apply(mov, 'Από λογαριασμό', fromRange('Λογαριασμοί', true));
-  apply(mov, 'Σε λογαριασμό ή σε ποιον', fromRange('Λογαριασμοί', false));   // λογαριασμός ή ελεύθερο όνομα
+  apply(mov, 'Από λογαριασμό', fromRange('Λογαριασμοί & ιδιοκτήτες', false));
+  apply(mov, 'Σε λογαριασμό ή σε ποιον', fromRange('Λογαριασμοί & ιδιοκτήτες', false));   // λογαριασμός, ιδιοκτήτης ή ελεύθερο όνομα
   apply(con, 'Ακίνητο', fromRange('Ακίνητα', true));
   apply(con, 'Λογαριασμός', fromRange('Λογαριασμοί', true));
   apply(fc, 'Κατεύθυνση', fromList(FC_DIR));
@@ -485,7 +493,16 @@ function check_() {
     if (blank_(r['ID'])) return;
     var miss = [], flow = movFlow_(r['Τι είναι']);
     ['Ημ/νία', 'Τι είναι', 'Ποσό'].forEach(function (c) { if (blank_(r[c])) miss.push(c); });
-    if ((flow === 'Έξοδος' || flow === 'Μεταφορά') && blank_(r['Από λογαριασμό'])) miss.push('Από λογαριασμό');
+    if ((flow === 'Έξοδος' || flow === 'Μεταφορά' || r['Τι είναι'] === 'Πληρωμή από ιδιοκτήτη') && blank_(r['Από λογαριασμό'])) miss.push('Από λογαριασμό');
+    var ownerSide = r['Τι είναι'] === 'Πληρωμή από ιδιοκτήτη' ? r['Από λογαριασμό'] : r['Τι είναι'] === 'Απόδοση σε ιδιοκτήτη' ? r['Σε λογαριασμό ή σε ποιον'] : '';
+    if (!blank_(ownerSide) && !Object.keys(L.prop).some(function (k) { return key_(L.prop[k].owner) === key_(ownerSide); })) {
+      issues.push([T.MOV, r['ID'], 'Άγνωστος ιδιοκτήτης «' + ownerSide + '» — γράψε το όνομα όπως στο Master Properties (Owner_Name)']);
+    }
+    var ourSide = r['Τι είναι'] === 'Πληρωμή από ιδιοκτήτη' ? r['Σε λογαριασμό ή σε ποιον'] : r['Από λογαριασμό'];
+    if ((flow === 'Είσοδος' || flow === 'Έξοδος' || flow === 'Μεταφορά') && !blank_(ourSide) && !L.acc[key_(ourSide)] &&
+        r['Τι είναι'] !== 'Επιστροφή σε συνέταιρο' && flow !== 'Είσοδος') {
+      issues.push([T.MOV, r['ID'], '«' + ourSide + '» δεν είναι λογαριασμός από τη λίστα']);
+    }
     if ((flow === 'Είσοδος' || flow === 'Μεταφορά' || r['Τι είναι'] === 'Επιστροφή σε συνέταιρο') && blank_(r['Σε λογαριασμό ή σε ποιον'])) miss.push('Σε λογαριασμό ή σε ποιον');
     if (flow === 'Μεταφορά' && !blank_(r['Σε λογαριασμό ή σε ποιον']) && !L.acc[key_(r['Σε λογαριασμό ή σε ποιον'])]) {
       issues.push([T.MOV, r['ID'], 'Μεταφορά: το «Σε» πρέπει να είναι λογαριασμός από τη λίστα']);
