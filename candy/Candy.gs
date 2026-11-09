@@ -30,17 +30,20 @@ var EXP_COLS = [['ID', 'sys'], ['Ημ/νία', 'man'], ['Προμηθευτής'
   ['Λογαριασμός', 'man'], ['Πλήρωσε', 'sys'], ['Ημ/νία πληρωμής', 'auto'], ['Declared', 'man'], ['ΦΠΑ %', 'man'],
   ['Καθαρό', 'auto'], ['ΦΠΑ', 'sys'], ['Σύνολο', 'auto'], ['Απόδειξη', 'man'], ['Σημείωση', 'man'], ['Οφειλή σε', 'sys'],
   ['Καταχωρήθηκε', 'sys']];
-var MOV_COLS = [['ID', 'sys'], ['Ημ/νία', 'man'], ['Κατεύθυνση', 'man'], ['Από/Προς', 'man'], ['Όνομα', 'man'],
-  ['Ποσό', 'man'], ['Τραπεζικά', 'man'], ['Λογαριασμός', 'man'], ['Προς λογαριασμό', 'man'], ['Ακίνητο', 'man'],
-  ['Κράτηση(εις)', 'man'], ['Σημείωση', 'man'], ['Καταχωρήθηκε', 'sys']];
+var MOV_COLS = [['ID', 'sys'], ['Ημ/νία', 'man'], ['Τι είναι', 'man'], ['Ποσό', 'man'], ['Από λογαριασμό', 'man'],
+  ['Σε λογαριασμό ή σε ποιον', 'man'], ['Σημείωση', 'man'], ['Καταχωρήθηκε', 'sys']];
 var CON_COLS = [['ID', 'sys'], ['Ημ/νία', 'man'], ['Ακίνητο', 'man'], ['Επισκέπτης / Κράτηση', 'man'], ['Υπηρεσία', 'man'],
   ['Προμηθευτής', 'man'], ['Ποσό', 'man'], ['Προμήθεια %', 'man'], ['Προμήθεια', 'sys'], ['Declared', 'man'],
   ['Εισπράχθηκε', 'man'], ['Λογαριασμός', 'man'], ['Σημείωση', 'man'], ['Καταχωρήθηκε', 'sys']];
 var FC_COLS = [['Ημ/νία', 'man'], ['Περιγραφή', 'man'], ['Κατεύθυνση', 'man'], ['Ποσό', 'man'], ['Λογαριασμός', 'man'],
   ['Επανάληψη', 'man'], ['Μέχρι', 'man'], ['Κατηγορία', 'man'], ['Σημείωση', 'man']];
 
-var DIRECTIONS = ['Εισπράξαμε', 'Πληρώσαμε', 'Μεταφορά μεταξύ λογαριασμών'];
-var COUNTERPARTIES = ['Ιδιοκτήτης', 'Πλατφόρμα', 'Επισκέπτης', 'Agency', 'Συνέταιρος', 'Εργαζόμενος', 'Τράπεζα / δάνειο', 'Δημόσιο', 'Άλλο'];
+// Κινήσεις: μόνο ό,τι δεν είναι έξοδο ούτε είσπραξη κράτησης (νέα μορφή 9/11).
+// Είσοδος = μπαίνουν χρήματα στο «Σε λογαριασμό» · Έξοδος = βγαίνουν από το «Από λογαριασμό» · Μεταφορά = και τα δύο.
+var MOV_TYPES = [['Επιστροφή σε συνέταιρο', 'Έξοδος'], ['Μεταφορά μεταξύ λογαριασμών', 'Μεταφορά'],
+  ['Εγγύηση (δόθηκε)', 'Έξοδος'], ['Εγγύηση (επιστράφηκε)', 'Είσοδος'], ['Κεφάλαιο (μπήκε)', 'Είσοδος'],
+  ['Δάνειο (μπήκε)', 'Είσοδος'], ['Δόση δανείου', 'Έξοδος'], ['Άλλη είσπραξη', 'Είσοδος'], ['Άλλη πληρωμή', 'Έξοδος']];
+function movFlow_(type) { for (var i = 0; i < MOV_TYPES.length; i++) if (MOV_TYPES[i][0] === type) return MOV_TYPES[i][1]; return ''; }
 var CHARGE_TO = ['Somnio', 'Ιδιοκτήτης'];
 var FC_DIR = ['Είσοδος', 'Έξοδος'];
 var FC_REPEAT = ['Μία φορά', 'Μηνιαία', 'Τριμηνιαία', 'Ετήσια'];
@@ -337,6 +340,7 @@ function setupCandy() {
     if (!sheet_(ss, T.EXP) && first.getLastRow() === 0) first.setName(T.EXP);
     var exp = getOrCreate_(ss, T.EXP), mov = getOrCreate_(ss, T.MOV), con = getOrCreate_(ss, T.CON), fc = getOrCreate_(ss, T.FC);
     styleEntry_(exp, EXP_COLS, '#202D5D');
+    migrateMovements_(mov);
     styleEntry_(mov, MOV_COLS, '#305BAB');
     styleEntry_(con, CON_COLS, '#2F7A4A');
     styleEntry_(fc, FC_COLS, '#9C4F24');
@@ -440,11 +444,9 @@ function applyValidations_(ss) {
   apply(exp, 'Λογαριασμός', fromRange('Λογαριασμοί', true));
   apply(exp, 'Χρεώνεται σε', fromList(CHARGE_TO));
   apply(exp, 'ΦΠΑ %', SpreadsheetApp.newDataValidation().requireValueInList(VAT_RATES, true).setAllowInvalid(true).build());
-  apply(mov, 'Κατεύθυνση', fromList(DIRECTIONS));
-  apply(mov, 'Από/Προς', fromList(COUNTERPARTIES));
-  apply(mov, 'Λογαριασμός', fromRange('Λογαριασμοί', true));
-  apply(mov, 'Προς λογαριασμό', fromRange('Λογαριασμοί', true));
-  apply(mov, 'Ακίνητο', fromRange('Ακίνητα', true));
+  apply(mov, 'Τι είναι', fromList(MOV_TYPES.map(function (t) { return t[0]; })));
+  apply(mov, 'Από λογαριασμό', fromRange('Λογαριασμοί', true));
+  apply(mov, 'Σε λογαριασμό ή σε ποιον', fromRange('Λογαριασμοί', false));   // λογαριασμός ή ελεύθερο όνομα
   apply(con, 'Ακίνητο', fromRange('Ακίνητα', true));
   apply(con, 'Λογαριασμός', fromRange('Λογαριασμοί', true));
   apply(fc, 'Κατεύθυνση', fromList(FC_DIR));
@@ -471,16 +473,21 @@ function check_() {
   });
   readTable_(ss, T.MOV).forEach(function (r) {
     if (blank_(r['ID'])) return;
-    var miss = [];
-    ['Ημ/νία', 'Κατεύθυνση', 'Ποσό', 'Λογαριασμός'].forEach(function (c) { if (blank_(r[c])) miss.push(c); });
-    if (r['Κατεύθυνση'] === 'Μεταφορά μεταξύ λογαριασμών' && blank_(r['Προς λογαριασμό'])) miss.push('Προς λογαριασμό');
-    if (r['Κατεύθυνση'] !== 'Μεταφορά μεταξύ λογαριασμών' && blank_(r['Από/Προς'])) miss.push('Από/Προς');
+    var miss = [], flow = movFlow_(r['Τι είναι']);
+    ['Ημ/νία', 'Τι είναι', 'Ποσό'].forEach(function (c) { if (blank_(r[c])) miss.push(c); });
+    if ((flow === 'Έξοδος' || flow === 'Μεταφορά') && blank_(r['Από λογαριασμό'])) miss.push('Από λογαριασμό');
+    if ((flow === 'Είσοδος' || flow === 'Μεταφορά' || r['Τι είναι'] === 'Επιστροφή σε συνέταιρο') && blank_(r['Σε λογαριασμό ή σε ποιον'])) miss.push('Σε λογαριασμό ή σε ποιον');
+    if (flow === 'Μεταφορά' && !blank_(r['Σε λογαριασμό ή σε ποιον']) && !L.acc[key_(r['Σε λογαριασμό ή σε ποιον'])]) {
+      issues.push([T.MOV, r['ID'], 'Μεταφορά: το «Σε» πρέπει να είναι λογαριασμός από τη λίστα']);
+    }
     if (miss.length) issues.push([T.MOV, r['ID'], 'Λείπει: ' + miss.join(', ')]);
-    // Επιστροφή σε συνέταιρο μειώνει την οφειλή
-    if (r['Από/Προς'] === 'Συνέταιρος' && r['Κατεύθυνση'] === 'Πληρώσαμε' && r['Όνομα']) {
-      var p = L.ppl[key_(r['Όνομα'])], nm = p ? p.name : String(r['Όνομα']);
+    // Επιστροφή σε συνέταιρο μειώνει την οφειλή. «Σε» = όνομα ατόμου ή προσωπικός λογαριασμός του.
+    if (r['Τι είναι'] === 'Επιστροφή σε συνέταιρο' && !blank_(r['Σε λογαριασμό ή σε ποιον'])) {
+      var to = String(r['Σε λογαριασμό ή σε ποιον']).trim(), acc = L.acc[key_(to)];
+      var who = acc && acc.holder ? acc.holder : to;
+      var p = L.ppl[key_(who)], nm = p ? p.name : who;
       owed[nm] = (owed[nm] || 0) - (num_(r['Ποσό']) || 0);
-      if (!p) issues.push([T.MOV, r['ID'], 'Άγνωστο άτομο «' + r['Όνομα'] + '» — πρόσθεσέ το στο tab Άτομα']);
+      if (!p) issues.push([T.MOV, r['ID'], 'Άγνωστο άτομο «' + who + '» — πρόσθεσέ το στο tab Άτομα']);
     }
   });
   readTable_(ss, T.ACC).forEach(function (r) {
@@ -494,7 +501,7 @@ function check_() {
   Object.keys(newSup).forEach(function (s) { out.push([T.SUP, s, 'Νέος προμηθευτής (' + newSup[s] + ' γραμμές) — πρόσθεσέ τον στο tab Προμηθευτές ή διόρθωσε το όνομα']); });
   if (out.length === 1) out.push(['', '', 'Καμία εκκρεμότητα ✓']);
   out.push(['', '', '']);
-  out.push(['Οφειλές σε συνεταίρους', 'Ποσό €', 'Πληρωμές από προσωπικούς λογαριασμούς μείον επιστροφές (tab Κινήσεις, Από/Προς = Συνέταιρος)']);
+  out.push(['Οφειλές σε συνεταίρους', 'Ποσό €', 'Πληρωμές από προσωπικούς λογαριασμούς μείον επιστροφές (tab Κινήσεις: «Επιστροφή σε συνέταιρο»)']);
   var owedKeys = Object.keys(owed).filter(function (k) { return Math.abs(owed[k]) >= 0.01; });
   if (!owedKeys.length) out.push(['—', 0, '']);
   owedKeys.forEach(function (k) { out.push([k, r2_(owed[k]), owed[k] > 0 ? 'Η Somnio χρωστά' : 'Επιστράφηκαν περισσότερα']); });
@@ -532,3 +539,27 @@ function dailyOn() {
 }
 function dailyOff() { dailyOff_(); SpreadsheetApp.getUi().alert('Καθημερινή ανανέωση OFF.'); }
 function dailyOff_() { ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'dailyJob') ScriptApp.deleteTrigger(t); }); }
+
+/** Κινήσεις: από την πρώτη μορφή (Κατεύθυνση / Από/Προς / Όνομα …) στη νέα (Τι είναι / Από / Σε). */
+function migrateMovements_(sh) {
+  var m = hmap_(sh);
+  if (m['Κατεύθυνση'] === undefined && m['Από/Προς'] === undefined) return;          // ήδη νέα μορφή
+  var old = readTable_(sh.getParent(), T.MOV).filter(function (r) { return !blank_(r['ID']); });
+  sh.clear();
+  var all = sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns());
+  all.clearDataValidations(); all.removeCheckboxes();
+  var heads = MOV_COLS.map(function (c) { return c[0]; });
+  sh.getRange(1, 1, 1, heads.length).setValues([heads]);
+  if (!old.length) return;
+  var rows = old.map(function (r) {
+    var dir = r['Κατεύθυνση'], cp = r['Από/Προς'];
+    var type = dir === 'Μεταφορά μεταξύ λογαριασμών' ? 'Μεταφορά μεταξύ λογαριασμών'
+      : (cp === 'Συνέταιρος' && dir === 'Πληρώσαμε') ? 'Επιστροφή σε συνέταιρο'
+      : dir === 'Εισπράξαμε' ? 'Άλλη είσπραξη' : 'Άλλη πληρωμή';
+    var from = dir === 'Εισπράξαμε' ? (r['Όνομα'] || cp || '') : r['Λογαριασμός'];
+    var to = dir === 'Εισπράξαμε' ? r['Λογαριασμός'] : (dir === 'Μεταφορά μεταξύ λογαριασμών' ? r['Προς λογαριασμό'] : (r['Όνομα'] || cp || ''));
+    var note = [r['Σημείωση'], r['Ακίνητο'], r['Κράτηση(εις)']].filter(function (x) { return !blank_(x); }).join(' · ');
+    return [r['ID'], r['Ημ/νία'], type, r['Ποσό'], from, to, note, r['Καταχωρήθηκε']];
+  });
+  sh.getRange(2, 1, rows.length, heads.length).setValues(rows);
+}
