@@ -212,3 +212,25 @@ function oxySavePdf_(invId, name) {
   else folder = DriveApp.getFolderById(String(SomnioCore.cfg('FOLDER_VOUCHERS')).trim()).getParents().next();
   return folder.createFile(res.getBlob().setName(name + '.pdf')).getUrl();
 }
+
+/**
+ * Φέρνει από το Oxygen τον ΜΑΡΚ (και τυχόν λάθος myDATA) για όσα έχουν εκδοθεί αλλά δεν έχουν ακόμα ΜΑΡΚ.
+ * Τρέχει και μόνο του σε κάθε «Ενημέρωση».
+ */
+function refreshMarks(silent) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(INV.MAIN);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  if (!PropertiesService.getScriptProperties().getProperty('OXYGEN_API_KEY')) return 0;
+  var m = SomnioCore.headerMap(sh), v = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues(), n = 0, err = 0;
+  v.forEach(function (r, i) {
+    var id = String(r[m['Oxygen_Invoice_ID']] || '').trim(), mk = String(r[m['ΜΑΡΚ']] || '');
+    if (!id || (mk && !/αναμένεται|⚠/.test(mk))) return;
+    var res = oxyCall_('get', '/invoices/' + id);
+    if (res.code !== 200) return;
+    var md = ((res.body.data || res.body) || {}).mydata || {};
+    var val = md.mark ? String(md.mark) : md.errors ? '⚠ myDATA: ' + String(md.errors.response || '').slice(0, 300) : '';
+    if (val && val !== mk) { sh.getRange(i + 2, m['ΜΑΡΚ'] + 1).setNumberFormat('@').setValue(val); if (md.mark) n++; else err++; }
+  });
+  if (!silent) SpreadsheetApp.getUi().alert('ΜΑΡΚ: ενημερώθηκαν ' + n + (err ? ' · με λάθος myDATA ' + err + ' (δες τη στήλη ΜΑΡΚ)' : '') + '.');
+  return n;
+}

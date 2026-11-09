@@ -245,6 +245,7 @@ function updateInvoicing(silent) {
     if (sh.getMaxRows() > 1) sh.getRange(2, hc, sh.getMaxRows() - 1, 1).removeCheckboxes();
     if (out.length) sh.getRange(2, hc, out.length, 1).insertCheckboxes();
     invWriteChecks_(ss, res.issues);
+    try { refreshMarks(true); } catch (e) {}
     var ready = res.rows.filter(function (o) { return o['Κατάσταση'] === 'Έτοιμο για έκδοση'; }).length;
     return { count: res.rows.length, detail: 'γραμμές ' + res.rows.length + ' · έτοιμα ' + ready + ' · λείπουν στοιχεία ' + res.issues.length };
   });
@@ -347,6 +348,7 @@ function issueSelected() {
       P.set('Oxygen_Invoice_ID', inv.id);
       P.set('Αρ. παραστατικού', (inv.numbering_sequence || ids.seq.name) + ' ' + inv.number);
       P.set('Εκδόθηκε', new Date());
+      P.sh.getRange(P.row, SomnioCore.headerMap(P.sh)['ΜΑΡΚ'] + 1).setNumberFormat('@');
       P.set('ΜΑΡΚ', md.mark ? String(md.mark) : (md.errors ? '⚠ myDATA: ' + String(md.errors.response || '').slice(0, 300) : '(αναμένεται)'));
       P.set('Κατάσταση', 'Εκδόθηκε');
       var pdf = '';
@@ -459,6 +461,7 @@ function onOpen() {
     .addSeparator()
     .addItem('4. Έκδοση παραστατικού (Oxygen) — επιλεγμένη γραμμή', 'issueSelected')
     .addItem('5. Αποστολή email — επιλεγμένη γραμμή', 'sendSelected')
+    .addItem('6. Φέρε ΜΑΡΚ από Oxygen', 'refreshMarks')
     .addSeparator()
     .addItem('Oxygen: δοκιμή σύνδεσης', 'oxygenTest')
     .addSeparator()
