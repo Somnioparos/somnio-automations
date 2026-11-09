@@ -111,7 +111,7 @@ function oxySetup_(doc) {
   var key = doc === 'Τιμολόγιο' ? 'OXYGEN_SERIES_INVOICE' : 'OXYGEN_SERIES_RECEIPT';
   var want = String(SomnioCore.cfg(key, false) || (doc === 'Τιμολόγιο' ? 'ΠΡΟΜ' : 'ΑΠΥ')).trim();
   var seqs = oxyList_('/numbering-sequences');
-  var seq = seqs.filter(function (q) { return q.id === want || oxyFold_(q.name) === oxyFold_(want); })[0];
+  var seq = seqs.filter(function (q) { return (q.id === want || oxyFold_(q.name) === oxyFold_(want)) && Number(q.status) === 1; })[0];
   if (!seq) throw new Error('Δεν βρέθηκε σειρά «' + want + '» στο Oxygen (Config ' + key + '). Υπάρχουν: ' +
     seqs.map(function (q) { return q.name + ' (' + q.document_type + ')'; }).join(', '));
   if (seq.document_type !== wantType) throw new Error('Η σειρά «' + seq.name + '» είναι φτιαγμένη για «' + seq.document_type +
