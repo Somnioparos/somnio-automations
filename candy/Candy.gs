@@ -177,16 +177,26 @@ function onEditInstalled(e) {
   if ([T.EXP, T.MOV, T.CON, REC_TAB].indexOf(name) === -1) return;
   try {
     if (name === REC_TAB) fillReceiptRows_(sh, e.range.getRow(), e.range.getNumRows());
-    else fillRows_(sh, e.range.getRow(), e.range.getNumRows(), lists_(sh.getParent()));
+    else { fillRows_(sh, e.range.getRow(), e.range.getNumRows(), lists_(sh.getParent())); check_(); }
   } catch (err) {
     try { SomnioCore.logRun('Candy · Αυτόματη συμπλήρωση', 'ERROR', '', name + ' γρ. ' + e.range.getRow() + ': ' + err.message); } catch (ignored) {}
   }
 }
 
+/** Διαγραφή / προσθήκη γραμμών δεν είναι «edit» → ξεχωριστό trigger ώστε το Έλεγχος να μένει πάντα σωστό. */
+function onChangeInstalled(e) {
+  if (!e || ['REMOVE_ROW', 'INSERT_ROW', 'REMOVE_COLUMN', 'INSERT_COLUMN', 'OTHER'].indexOf(e.changeType) === -1) return;
+  try { check_(); }
+  catch (err) { try { SomnioCore.logRun('Candy · Έλεγχος (αλλαγή)', 'ERROR', '', err.message); } catch (ignored) {} }
+}
+
 function installEditTrigger_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'onEditInstalled') ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var f = t.getHandlerFunction(); if (f === 'onEditInstalled' || f === 'onChangeInstalled') ScriptApp.deleteTrigger(t);
+  });
   ScriptApp.newTrigger('onEditInstalled').forSpreadsheet(ss).onEdit().create();
+  ScriptApp.newTrigger('onChangeInstalled').forSpreadsheet(ss).onChange().create();
 }
 
 /** Συμπληρώνει τα αυτόματα πεδία στις γραμμές [start, start+n). */
