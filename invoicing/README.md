@@ -17,5 +17,5 @@
 1. Στήσιμο · 2. Ενημέρωση · 3. Gmail draft για την επιλεγμένη γραμμή (voucher + PDF όταν υπάρχει, cc λογιστή — δεν στέλνει) · Oxygen: δοκιμή σύνδεσης · Αυτόματο ON (~08:55).
 
 ## Επόμενο (όταν έρθει το Sandbox API Key)
-Δοκιμή σύνδεσης → ids σειρών/ΦΠΑ/μονάδων → POST /contacts (Oxygen_Contact_ID πίσω στο Master Properties χειροκίνητα ή μέσω tab) → POST /invoices (2 γραμμές) → ΜΑΡΚ + PDF → email → voucher στο Sent.
+Ροή: Δοκιμή σύνδεσης → «4. Έκδοση» (επαφή με ΑΦΜ/ΓΓΠΣ → POST /invoices → ΜΑΡΚ → PDF στο Drive) → «5. Αποστολή email» (PDF + voucher, cc λογιστή, voucher → Sent). Στο sandbox το email πάει μόνο στον χρήστη. Σχήμα API: https://docs.oxygen.gr/openapi.json.
 Ανοιχτά για τον λογιστή: τύπος παραστατικού και χαρακτηρισμός εσόδου (E3) ανά γραμμή, ΦΠΑ στη γραμμή Airbnb.

@@ -29,7 +29,7 @@ var INV_COLS = [
   ['Προμήθεια Somnio', 'sys'], ['ΦΠΑ προμήθειας', 'sys'], ['Προμήθεια Airbnb', 'sys'], ['ΦΠΑ προμήθειας Airbnb', 'sys'],
   ['Σύνολο παραστατικού', 'sys'], ['Προς πληρωμή', 'sys'], ['Voucher', 'sys'], ['Τι λείπει', 'sys'],
   [INV_HOLD, 'man'], ['Σημείωση', 'man'],
-  ['Αρ. παραστατικού', 'oxy'], ['ΜΑΡΚ', 'oxy'], ['PDF', 'oxy'], ['Εκδόθηκε', 'oxy'], ['Email στάλθηκε', 'oxy'],
+  ['Αρ. παραστατικού', 'oxy'], ['ΜΑΡΚ', 'oxy'], ['PDF', 'oxy'], ['Εκδόθηκε', 'oxy'], ['Email στάλθηκε', 'oxy'], ['Oxygen_Invoice_ID', 'oxy'],
   ['Θέμα email', 'sys'], ['Κείμενο email', 'sys'], ['Περιγραφή γραμμής 1', 'sys'], ['Περιγραφή γραμμής 2', 'sys'],
   ['Αιτιολογία κατάθεσης', 'sys'], ['Email ιδιοκτήτη', 'sys'], ['Email λογιστή', 'sys'], ['ΑΦΜ', 'sys'],
   ['Επωνυμία', 'sys'], ['ΔΟΥ', 'sys'], ['Διεύθυνση', 'sys'], ['Oxygen_Contact_ID', 'sys'], ['Reservation ID', 'sys'], ['event_id', 'sys']
@@ -171,12 +171,8 @@ function invBuild_(bookings, props, vouchers, old, today, vat, bankText) {
     var vUrl = r.resId && vouchers[invKey_(r.resId)];
     if (!vUrl) miss.push('voucher στον φάκελο Vouchers');
     if (!r.email) miss.push('Owner_Email');
-    if (doc === 'Τιμολόγιο') {
-      if (!/^\d{9}$/.test(r.afm)) miss.push('ΑΦΜ (9 ψηφία)');
-      if (!r.legal) miss.push('Owner_Legal_Name');
-      if (!r.doy) miss.push('ΔΟΥ');
-      if (!r.addr) miss.push('Owner_Address');
-    }
+    // Επωνυμία / ΔΟΥ / διεύθυνση τα φέρνει το Oxygen από τη ΓΓΠΣ με το ΑΦΜ — αρκεί το ΑΦΜ.
+    if (doc === 'Τιμολόγιο' && !/^\d{9}$/.test(r.afm)) miss.push('ΑΦΜ (9 ψηφία)');
     var ex = old[id] || {};
     var st;
     if (ex['Email στάλθηκε']) st = 'Στάλθηκε';
@@ -289,6 +285,115 @@ function draftSelected() {
     (g('PDF') ? '' : '\n\nΣημ.: το παραστατικό δεν έχει εκδοθεί ακόμα — το PDF θα μπαίνει αυτόματα όταν συνδεθεί το Oxygen.'));
 }
 
+// -- ΕΚΔΟΣΗ & ΑΠΟΣΤΟΛΗ (Oxygen) ------------------------------------------------------
+
+/** Η επιλεγμένη γραμμή του tab: { row, g(στήλη), set(στήλη, τιμή) }. */
+function invPick_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getActiveSheet(), ui = SpreadsheetApp.getUi();
+  if (sh.getName() !== INV.MAIN) { ui.alert('Πήγαινε στο tab «' + INV.MAIN + '» και κάνε κλικ σε μια γραμμή κράτησης.'); return null; }
+  var row = sh.getActiveRange().getRow();
+  if (row < 2 || sh.getActiveRange().getNumRows() > 1) { ui.alert('Κάνε κλικ σε ΜΙΑ γραμμή κράτησης.'); return null; }
+  invSheet_(ss);
+  var m = SomnioCore.headerMap(sh), v = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+  return {
+    sh: sh, row: row,
+    g: function (c) { return m[c] === undefined ? '' : v[m[c]]; },
+    set: function (c, val) { if (m[c] !== undefined) { sh.getRange(row, m[c] + 1).setValue(val); v[m[c]] = val; } }
+  };
+}
+
+/** Γράφει το Oxygen_Contact_ID στο Master Properties (σε όλα τα ακίνητα του ίδιου ιδιοκτήτη χωρίς id). */
+function invSaveContact_(owner, res, cid) {
+  var mp = SomnioCore.openFile('FILE_MASTER_PROPERTIES'), sh = mp.getSheetByName('Properties') || mp.getSheets()[0];
+  var m = SomnioCore.headerMap(sh); if (m['Oxygen_Contact_ID'] === undefined || sh.getLastRow() < 2) return 0;
+  var v = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues(), n = 0;
+  v.forEach(function (r, i) {
+    var same = (owner && invKey_(r[m['Owner_Name']]) === invKey_(owner)) || invKey_(r[m['Residence']]) === invKey_(res);
+    if (same && !String(r[m['Oxygen_Contact_ID']] || '').trim()) { sh.getRange(i + 2, m['Oxygen_Contact_ID'] + 1).setValue(cid); n++; }
+  });
+  return n;
+}
+
+/**
+ * Εκδίδει στο Oxygen το παραστατικό της επιλεγμένης γραμμής (ρωτάει πρώτα).
+ * Παραγωγή: μόνο «Έτοιμο για έκδοση». Sandbox: και Μελλοντική / Λείπουν στοιχεία (για δοκιμή), αρκεί να υπάρχουν τα στοιχεία ιδιοκτήτη.
+ */
+function issueSelected() {
+  var ui = SpreadsheetApp.getUi(), P = invPick_(); if (!P) return;
+  var g = P.g, prod = oxyIsProd_(), st = String(g('Κατάσταση'));
+  if (g('Oxygen_Invoice_ID') || g('Αρ. παραστατικού')) { ui.alert('Έχει ήδη εκδοθεί: ' + g('Αρ. παραστατικού') + '. Δεν εκδίδω δεύτερο.'); return; }
+  if (g(INV_HOLD) === true) { ui.alert('Η γραμμή είναι σε ✋ Αναμονή.'); return; }
+  var allowed = prod ? ['Έτοιμο για έκδοση'] : ['Έτοιμο για έκδοση', 'Μελλοντική', 'Λείπουν στοιχεία'];
+  if (allowed.indexOf(st) === -1) { ui.alert('Κατάσταση «' + st + '» — δεν εκδίδεται.' + (g('Τι λείπει') ? '\nΛείπουν: ' + g('Τι λείπει') : '')); return; }
+  var q = (prod ? '⚠ ΠΑΡΑΓΩΓΗ — θα σταλεί ΚΑΝΟΝΙΚΑ στο myDATA.\n\n' : 'ΔΟΚΙΜΗ (sandbox) — δεν μετράει στην εφορία.\n\n') +
+    g('Παραστατικό') + ' προς ' + (g('Επωνυμία') || g('Ιδιοκτήτης')) + (g('ΑΦΜ') ? ' (ΑΦΜ ' + g('ΑΦΜ') + ')' : '') + '\n' +
+    g('Ακίνητο') + ' · ' + invDMY_(g('Check-in')) + ' – ' + invDMY_(g('Check-out')) + ' · ' + g('Επισκέπτης') + '\n\n' +
+    'Προμήθεια Somnio ' + invEuro_(invNum_(g('Προμήθεια Somnio'))) + ' + ΦΠΑ ' + invEuro_(invNum_(g('ΦΠΑ προμήθειας'))) +
+    (invNum_(g('Προμήθεια Airbnb')) > 0 && g('Παραστατικό') === 'Τιμολόγιο' ? '\nΠρομήθεια Airbnb ' + invEuro_(invNum_(g('Προμήθεια Airbnb'))) + ' + ΦΠΑ ' + invEuro_(invNum_(g('ΦΠΑ προμήθειας Airbnb'))) : '') +
+    '\nΣύνολο ' + invEuro_(invNum_(g('Σύνολο παραστατικού'))) + ' · Προς πληρωμή ' + invEuro_(invNum_(g('Προς πληρωμή'))) +
+    (st !== 'Έτοιμο για έκδοση' ? '\n\n(Κατάσταση: ' + st + ' — επιτρέπεται μόνο επειδή είμαστε σε sandbox.)' : '') + '\n\nΝα εκδοθεί;';
+  if (ui.alert('Έκδοση παραστατικού', q, ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  var lock = LockService.getDocumentLock(); if (!lock.tryLock(20000)) { ui.alert('Τρέχει ήδη άλλη έκδοση — δοκίμασε σε λίγο.'); return; }
+  var msg = '', ok = false;
+  try {
+    ok = SomnioCore.runJob('Owner Invoicing · Έκδοση', function () {
+      var ids = oxySetup_(g('Παραστατικό'));
+      var c = oxyContact_(g);
+      if (c.created || !g('Oxygen_Contact_ID')) { P.set('Oxygen_Contact_ID', c.id); invSaveContact_(g('Ιδιοκτήτης'), g('Ακίνητο'), c.id); }
+      var body = oxyInvoiceBody_(g, ids, c.id, new Date());
+      var r = oxyCall_('post', '/invoices', body);
+      if (r.code !== 200 && r.code !== 201) throw new Error('Έκδοση: ' + oxyErr_(r));
+      var inv = r.body.data || r.body, md = inv.mydata || {};
+      P.set('Oxygen_Invoice_ID', inv.id);
+      P.set('Αρ. παραστατικού', (inv.numbering_sequence || ids.seq.name) + ' ' + inv.number);
+      P.set('Εκδόθηκε', new Date());
+      P.set('ΜΑΡΚ', md.mark ? String(md.mark) : (md.errors ? '⚠ myDATA: ' + String(md.errors.response || '').slice(0, 300) : '(αναμένεται)'));
+      P.set('Κατάσταση', 'Εκδόθηκε');
+      var pdf = '';
+      try { pdf = oxySavePdf_(inv.id, String(g('Αρ. παραστατικού')).replace(/\s+/g, '_') + '_' + String(g('Αιτιολογία κατάθεσης'))); P.set('PDF', pdf); }
+      catch (e) { P.set('PDF', '⚠ ' + e.message.slice(0, 200)); }
+      msg = 'Εκδόθηκε ' + g('Αρ. παραστατικού') + '\nΜΑΡΚ: ' + g('ΜΑΡΚ') + '\nPDF: ' + (pdf ? 'αποθηκεύτηκε' : 'ΔΕΝ αποθηκεύτηκε — δες τη στήλη PDF') +
+        '\nΣύνολο Oxygen: ' + invEuro_(inv.total_amount) + (Math.abs(invNum_(inv.total_amount) - invNum_(g('Σύνολο παραστατικού'))) > 0.009 ? '  ⚠ ΔΙΑΦΟΡΑ με το φύλλο!' : ' ✓');
+      return { count: 1, detail: (prod ? 'PROD ' : 'SANDBOX ') + g('Αρ. παραστατικού') + ' · ' + g('Ακίνητο') + ' · ' + g('Επισκέπτης') };
+    });
+  } finally { lock.releaseLock(); }
+  if (ok) ui.alert(msg);   // σε σφάλμα το runJob έχει ήδη δείξει μήνυμα
+}
+
+/**
+ * Στέλνει το email της επιλεγμένης γραμμής με συνημμένα PDF + voucher (κοινοποίηση στον λογιστή).
+ * Sandbox: πάει ΜΟΝΟ σε σένα, με [ΔΟΚΙΜΗ] στο θέμα, και το voucher δεν μετακινείται.
+ */
+function sendSelected() {
+  var ui = SpreadsheetApp.getUi(), P = invPick_(); if (!P) return;
+  var g = P.g, prod = oxyIsProd_();
+  if (g('Email στάλθηκε')) { ui.alert('Έχει ήδη σταλεί (' + invDMY_(g('Email στάλθηκε')) + ').'); return; }
+  var fileId = function (url) { var x = String(url || '').match(/[-\w]{25,}/); return x ? x[0] : null; };
+  if (!fileId(g('PDF'))) { ui.alert('Δεν υπάρχει PDF παραστατικού — κάνε πρώτα «4. Έκδοση».'); return; }
+  var me = Session.getActiveUser().getEmail();
+  var to = prod ? String(g('Email ιδιοκτήτη') || '').trim() : me;
+  if (!to) { ui.alert('Λείπει το email του ιδιοκτήτη (Master Properties › Owner_Email).'); return; }
+  var cc = prod ? String(g('Email λογιστή') || '').trim() : '';
+  var vId = fileId(g('Voucher'));
+  if (prod && !vId) { ui.alert('Λείπει το voucher.'); return; }
+  var subj = (prod ? '' : '[ΔΟΚΙΜΗ] ') + g('Θέμα email');
+  var q = 'Προς: ' + to + (cc ? '\nΚοιν.: ' + cc : '') + '\nΘέμα: ' + subj + '\nΣυνημμένα: PDF παραστατικού' + (vId ? ' + voucher' : '') +
+    (prod ? '' : '\n\n(Sandbox: πάει μόνο σε σένα — ο ιδιοκτήτης θα ήταν ' + (g('Email ιδιοκτήτη') || '—') + ')') + '\n\nΝα σταλεί;';
+  if (ui.alert('Αποστολή email', q, ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  var ok = SomnioCore.runJob('Owner Invoicing · Email', function () {
+    var att = [DriveApp.getFileById(fileId(g('PDF'))).getBlob()];
+    if (vId) att.push(DriveApp.getFileById(vId).getBlob());
+    var opt = { attachments: att, name: 'Somnio' }; if (cc) opt.cc = cc;
+    GmailApp.sendEmail(to, subj, String(g('Κείμενο email')), opt);
+    P.set('Email στάλθηκε', new Date());
+    if (prod) P.set('Κατάσταση', 'Στάλθηκε');
+    var sent = String(SomnioCore.cfg('FOLDER_VOUCHERS_SENT', false) || '').trim();
+    if (prod && vId && sent) DriveApp.getFileById(vId).moveTo(DriveApp.getFolderById(sent));
+    return { count: 1, detail: (prod ? '' : 'SANDBOX ') + g('Ακίνητο') + ' → ' + to };
+  });
+  ui.alert(ok ? 'Στάλθηκε στο ' + to + '.' : 'Σφάλμα — δες το Health/Log στο Config.');
+}
+
 // -- ΣΤΗΣΙΜΟ -------------------------------------------------------------------------
 
 function invSheet_(ss) {
@@ -352,7 +457,10 @@ function onOpen() {
     .addItem('2. Ενημέρωση τώρα', 'updateInvoicing')
     .addItem('3. Gmail draft για την επιλεγμένη γραμμή', 'draftSelected')
     .addSeparator()
-    .addItem('Oxygen: δοκιμή σύνδεσης (sandbox)', 'oxygenTest')
+    .addItem('4. Έκδοση παραστατικού (Oxygen) — επιλεγμένη γραμμή', 'issueSelected')
+    .addItem('5. Αποστολή email — επιλεγμένη γραμμή', 'sendSelected')
+    .addSeparator()
+    .addItem('Oxygen: δοκιμή σύνδεσης', 'oxygenTest')
     .addSeparator()
     .addItem('Αυτόματη ενημέρωση ON (~08:55)', 'invTriggerOn')
     .addItem('Αυτόματη ενημέρωση OFF', 'invTriggerOff')

@@ -1,15 +1,23 @@
 /**
  * Owner Invoicing 2027 — σύνδεση με Oxygen (Pelatologio ERP API).
  *
- * Βάση: https://sandbox-api.oxygen.gr/v1 (δοκιμές) · https://api.oxygen.gr/v1 (παραγωγή, θέλει αναβάθμιση συνδρομής).
+ * Βάση: https://sandbox-api.oxygen.gr/v1 (δοκιμές) · https://api.oxygen.gr/v1 (παραγωγή).
  * Πιστοποίηση: Authorization: Bearer <OXYGEN_API_KEY> (Script Property του αρχείου — ποτέ στο GitHub/chat).
- * Config: OXYGEN_ENV = sandbox | production (προεπιλογή sandbox) · OXYGEN_SERIES_INVOICE (ΠΡΟΜ) · OXYGEN_SERIES_RECEIPT (ΑΠΥ).
+ * Σχήμα API: https://docs.oxygen.gr/openapi.json (διαβάστηκε 9/11/2026).
  *
- * Ροή Oxygen (από το email τους): POST /contacts → id επαφής → POST /invoices με το id της επαφής,
- * και με τα id σειράς παραστατικού, συντελεστή ΦΠΑ, μονάδας μέτρησης, τρόπου πληρωμής.
+ * Config:
+ *   OXYGEN_ENV              sandbox | production (προεπιλογή sandbox)
+ *   OXYGEN_SERIES_INVOICE   σειρά Τιμολογίου Παροχής (όνομα, π.χ. ΠΡΟΜ, ή id) — τύπος σειράς «s»
+ *   OXYGEN_SERIES_RECEIPT   σειρά Απόδειξης Παροχής (όνομα, π.χ. ΑΠΥ, ή id)    — τύπος σειράς «rs»
+ *   OXYGEN_PAYMENT          τρόπος πληρωμής: κωδικός myDATA ή τίτλος (προεπιλογή 1 = Τραπεζική κατάθεση εσωτερικού)
+ *   OXYGEN_MYDATA_CATEGORY  χαρακτηρισμός εσόδου (προεπιλογή category1_3 = Έσοδα από παροχή υπηρεσιών)
+ *   OXYGEN_MYDATA_TYPE_INVOICE / OXYGEN_MYDATA_TYPE_RECEIPT  (προεπιλογή E3_561_001 / E3_561_003) — να επιβεβαιώσει ο λογιστής
+ *   FOLDER_INVOICE_PDFS     φάκελος για τα PDF (αλλιώς ο γονικός του Vouchers)
+ *   FOLDER_VOUCHERS_SENT    φάκελος Sent (εκεί πάει το voucher μετά την αποστολή)
  *
- * ΚΑΤΑΣΤΑΣΗ 9/11: υπάρχει μόνο η δοκιμή σύνδεσης (διαβάζει τις λίστες για να βρούμε τα id).
- * Η έκδοση παραστατικού γράφεται μόλις έχουμε το sandbox key + το σχήμα του POST /invoices.
+ * Ροή: επαφή (βρες με ΑΦΜ/email ή φτιάξε — στοιχεία εταιρείας από ΓΓΠΣ μέσω /vat-check)
+ *      → POST /invoices (1 ή 2 γραμμές) → ΜΑΡΚ → PDF στο Drive → email.
+ * Στο sandbox: τα email πάνε ΜΟΝΟ σε σένα (με [ΔΟΚΙΜΗ]) και το voucher δεν μετακινείται.
  */
 
 function oxyBase_() {
@@ -68,4 +76,136 @@ function oxygenTest() {
   sh.setColumnWidth(1, 200); sh.setColumnWidth(3, 260); sh.setColumnWidth(4, 220); sh.setColumnWidth(5, 700);
   SomnioCore.logRun('Owner Invoicing · Oxygen test', okN ? 'OK' : 'ERROR', okN, oxyBase_() + ' · ' + okN + '/' + paths.length + ' OK');
   SpreadsheetApp.getUi().alert('Oxygen (' + oxyBase_() + '): ' + okN + '/' + paths.length + ' απαντήσεις ΟΚ. Δες το tab «Oxygen».');
+}
+
+// -- ΒΟΗΘΗΤΙΚΑ ΕΚΔΟΣΗΣ ----------------------------------------------------------------
+
+function oxyIsProd_() { return oxyBase_().indexOf('sandbox') === -1; }
+
+/** Λάθος του Oxygen σε μία γραμμή κειμένου (message + errors). */
+function oxyErr_(r) {
+  var b = r.body;
+  if (b && typeof b === 'object') {
+    var t = b.message || '';
+    if (b.errors) Object.keys(b.errors).forEach(function (k) { t += ' · ' + k + ': ' + [].concat(b.errors[k]).join(' '); });
+    return 'HTTP ' + r.code + ' — ' + t;
+  }
+  return 'HTTP ' + r.code + ' — ' + String(b).slice(0, 400);
+}
+function oxyList_(path) {
+  var r = oxyCall_('get', path);
+  if (r.code !== 200) throw new Error('Oxygen ' + path + ': ' + oxyErr_(r));
+  return Array.isArray(r.body) ? r.body : (r.body && r.body.data) || [];
+}
+
+/** Σύγκριση ονομάτων σειράς: ίδια γράμματα Ελληνικά/Λατινικά (ΠPOM = ΠΡΟΜ), χωρίς τόνους/κενά. */
+function oxyFold_(s) {
+  var map = { 'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'H', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M', 'Ν': 'N', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Υ': 'Y', 'Χ': 'X' };
+  return String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ\s]/g, '')
+    .split('').map(function (c) { return map[c] || c; }).join('');
+}
+
+/** Τα ids που χρειάζεται το παραστατικό: σειρά, ΦΠΑ 24%, τρόπος πληρωμής. */
+function oxySetup_(doc) {
+  var wantType = doc === 'Τιμολόγιο' ? 's' : 'rs';
+  var key = doc === 'Τιμολόγιο' ? 'OXYGEN_SERIES_INVOICE' : 'OXYGEN_SERIES_RECEIPT';
+  var want = String(SomnioCore.cfg(key, false) || (doc === 'Τιμολόγιο' ? 'ΠΡΟΜ' : 'ΑΠΥ')).trim();
+  var seqs = oxyList_('/numbering-sequences');
+  var seq = seqs.filter(function (q) { return q.id === want || oxyFold_(q.name) === oxyFold_(want); })[0];
+  if (!seq) throw new Error('Δεν βρέθηκε σειρά «' + want + '» στο Oxygen (Config ' + key + '). Υπάρχουν: ' +
+    seqs.map(function (q) { return q.name + ' (' + q.document_type + ')'; }).join(', '));
+  if (seq.document_type !== wantType) throw new Error('Η σειρά «' + seq.name + '» είναι φτιαγμένη για «' + seq.document_type +
+    '» αλλά για ' + doc + ' χρειάζεται «' + wantType + '» (' + (wantType === 's' ? 'Τιμολόγιο Παροχής Υπηρεσιών' : 'Απόδειξη Παροχής Υπηρεσιών') +
+    '). Φτιάξε τη σειρά στη σωστή κατηγορία παραστατικού στο Oxygen.');
+  if (seq.is_draft) throw new Error('Η σειρά «' + seq.name + '» είναι πρόχειρη (draft) — δεν θα πάει στο myDATA.');
+  var rate = Math.round(invVat_() * 10000) / 100;
+  var tax = oxyList_('/taxes').filter(function (t) { return Number(t.rate) === rate && t.status; })[0];
+  if (!tax) throw new Error('Δεν βρέθηκε συντελεστής ΦΠΑ ' + rate + '% στο Oxygen.');
+  var pw = String(SomnioCore.cfg('OXYGEN_PAYMENT', false) || '1').trim();
+  var pm = oxyList_('/payment-methods').filter(function (p) {
+    return p.id === pw || String(p.mydata_code) === pw || invKey_(p.title_gr) === invKey_(pw);
+  })[0];
+  if (!pm) throw new Error('Δεν βρέθηκε τρόπος πληρωμής «' + pw + '» (Config OXYGEN_PAYMENT).');
+  return { seq: seq, tax: tax, pm: pm };
+}
+
+/** «Οδός 12, 54622 Θεσσαλονίκη» → {street, number, zip, city}. Ό,τι δεν βγαίνει μένει κενό. */
+function oxyAddr_(s) {
+  s = String(s || '').trim();
+  var m = s.match(/^(.*?)\s+(\d+[\w\-\/]*)\s*,?\s*(\d{3}\s?\d{2})\s*,?\s*(.+)$/);
+  if (m) return { street: m[1].replace(/,$/, ''), number: m[2], zip: m[3].replace(/\s/g, ''), city: m[4] };
+  return { street: s, number: '', zip: '', city: '' };
+}
+
+/**
+ * Βρίσκει ή φτιάχνει την επαφή του ιδιοκτήτη. Επιστρέφει το id.
+ * Εταιρεία: ψάχνει με ΑΦΜ · αλλιώς στοιχεία από ΓΓΠΣ (/vat-check), με προτεραιότητα ό,τι γράφει το Master Properties.
+ * Ιδιώτης: ψάχνει με email · αλλιώς τον φτιάχνει (όνομα/επώνυμο από Owner_Name).
+ */
+function oxyContact_(g) {
+  var known = String(g('Oxygen_Contact_ID') || '').trim();
+  if (known) return { id: known, created: false };
+  var isCo = g('Παραστατικό') === 'Τιμολόγιο', afm = String(g('ΑΦΜ') || '').trim(), email = String(g('Email ιδιοκτήτη') || '').trim();
+  if (isCo) {
+    if (!/^\d{9}$/.test(afm)) throw new Error('Λείπει ΑΦΜ (9 ψηφία) στο Master Properties.');
+    var f = oxyList_('/contacts?vat=' + afm);
+    if (f.length) return { id: f[0].id, created: false };
+    var gs = {}, vr = oxyCall_('get', '/vat-check?vat=' + afm);
+    if (vr.code === 200 && vr.body) gs = vr.body.data || vr.body;
+    var a = oxyAddr_(g('Διεύθυνση'));
+    var body = {
+      type: 2, is_client: true, is_supplier: false, country: 'GR', vat_number: afm,
+      company_name: String(gs.legalName || g('Επωνυμία') || '').trim(),
+      tax_office: String(g('ΔΟΥ') || gs.taxAuthorityName || '').trim(),
+      profession: String((gs.firms && gs.firms[0] && gs.firms[0].description) || 'Εκμίσθωση ακινήτων').slice(0, 120),
+      street: String(gs.street || a.street || '').trim(), number: String(gs.streetNumber || a.number || '0').trim(),
+      city: String(gs.city || a.city || '').trim(), zip_code: String(gs.postcode || a.zip || '').trim(), email: email || null
+    };
+    if (g('Επωνυμία') && g('Επωνυμία') !== g('Ιδιοκτήτης')) body.company_name = String(g('Επωνυμία')).trim();
+    var miss = ['company_name', 'tax_office', 'street', 'city', 'zip_code'].filter(function (k) { return !body[k]; });
+    if (miss.length) throw new Error('Η ΓΓΠΣ δεν έδωσε (και λείπουν από το Master Properties): ' + miss.join(', ') +
+      '. Συμπλήρωσε Owner_Legal_Name / DOY / Owner_Address (π.χ. «Τσιμισκή 12, 54622 Θεσσαλονίκη»).');
+  } else {
+    if (email) { var e = oxyList_('/contacts?email=' + encodeURIComponent(email)); if (e.length) return { id: e[0].id, created: false }; }
+    var parts = String(g('Επωνυμία') || g('Ιδιοκτήτης') || '').trim().split(/\s+/);
+    if (!parts[0]) throw new Error('Λείπει το όνομα του ιδιοκτήτη.');
+    body = { type: 1, is_client: true, is_supplier: false, country: 'GR', name: parts[0], surname: parts.slice(1).join(' ') || parts[0], email: email || null };
+    if (/^\d{9}$/.test(afm)) body.vat_number = afm;
+  }
+  var r = oxyCall_('post', '/contacts', body);
+  if (r.code !== 200 && r.code !== 201) throw new Error('Δημιουργία επαφής: ' + oxyErr_(r));
+  var c = r.body.data || r.body;
+  return { id: c.id, created: true };
+}
+
+/** Το σώμα του POST /invoices για μία γραμμή του tab. Καθαρή συνάρτηση (για έλεγχο). */
+function oxyInvoiceBody_(g, ids, contactId, today) {
+  var isInv = g('Παραστατικό') === 'Τιμολόγιο';
+  var cat = String(SomnioCore.cfg('OXYGEN_MYDATA_CATEGORY', false) || 'category1_3');
+  var typ = String(SomnioCore.cfg(isInv ? 'OXYGEN_MYDATA_TYPE_INVOICE' : 'OXYGEN_MYDATA_TYPE_RECEIPT', false) || (isInv ? 'E3_561_001' : 'E3_561_003'));
+  var line = function (desc, net, vat) {
+    return { description: String(desc).slice(0, 300), quantity: 1, unit_net_value: invR2_(net), net_amount: invR2_(net),
+      vat_amount: invR2_(vat), tax_id: ids.tax.id, mydata_classification_category: cat, mydata_classification_type: typ };
+  };
+  var items = [line(g('Περιγραφή γραμμής 1'), invNum_(g('Προμήθεια Somnio')), invNum_(g('ΦΠΑ προμήθειας')))];
+  var ab = invNum_(g('Προμήθεια Airbnb'));
+  if (isInv && ab > 0) items.push(line(g('Περιγραφή γραμμής 2'), ab, invNum_(g('ΦΠΑ προμήθειας Airbnb'))));
+  return {
+    numbering_sequence_id: ids.seq.id, issue_date: Utilities.formatDate(today, 'Europe/Athens', 'yyyy-MM-dd'),
+    document_type: isInv ? 's' : 'rs', mydata_document_type: isInv ? '2.1' : '11.2', language: 'gr',
+    payment_method_id: ids.pm.id, contact_id: contactId, items: items, is_paid: false,
+    description: String(g('Περιγραφή γραμμής 1')).slice(0, 200),
+    comments: 'Αιτιολογία κατάθεσης: ' + g('Αιτιολογία κατάθεσης') + (isInv && ab > 0 ? ' · Ποσό προς πληρωμή: ' + invEuro_(invNum_(g('Προς πληρωμή'))) : '')
+  };
+}
+
+/** PDF παραστατικού → αρχείο στο Drive. Επιστρέφει το url. */
+function oxySavePdf_(invId, name) {
+  var res = UrlFetchApp.fetch(oxyBase_() + '/invoices/' + invId + '/pdf', { muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + oxyKey_(), Accept: 'application/pdf' } });
+  if (res.getResponseCode() !== 200) throw new Error('PDF: HTTP ' + res.getResponseCode() + ' — ' + res.getContentText().slice(0, 300));
+  var fid = String(SomnioCore.cfg('FOLDER_INVOICE_PDFS', false) || '').trim(), folder;
+  if (fid) folder = DriveApp.getFolderById(fid);
+  else folder = DriveApp.getFolderById(String(SomnioCore.cfg('FOLDER_VOUCHERS')).trim()).getParents().next();
+  return folder.createFile(res.getBlob().setName(name + '.pdf')).getUrl();
 }
