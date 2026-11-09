@@ -379,7 +379,7 @@ function sendSelected() {
   var fileId = function (url) { var x = String(url || '').match(/[-\w]{25,}/); return x ? x[0] : null; };
   if (!/^\d{10,}$/.test(String(g('ΜΑΡΚ')))) { ui.alert('Δεν υπάρχει ακόμα ΜΑΡΚ — πάτα «6. Φέρε ΜΑΡΚ από Oxygen» (ή στείλε το στο myDATA από το Oxygen).'); return; }
   if (!fileId(g('PDF'))) { ui.alert('Δεν υπάρχει PDF παραστατικού — πάτα «6. Φέρε ΜΑΡΚ από Oxygen».'); return; }
-  var me = Session.getActiveUser().getEmail();
+  var me = String(SomnioCore.cfg('TEST_EMAIL', false) || '').trim() || Session.getActiveUser().getEmail();   // sandbox: πού πάει η δοκιμή
   var to = prod ? String(g('Email ιδιοκτήτη') || '').trim() : me;
   if (!to) { ui.alert('Λείπει το email του ιδιοκτήτη (Master Properties › Owner_Email).'); return; }
   var cc = prod ? String(g('Email λογιστή') || '').trim() : '';
