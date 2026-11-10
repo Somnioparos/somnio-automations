@@ -28,7 +28,11 @@ function webData() {
 function webRefresh() { return ccRefresh_(); }
 
 /** Το link της εφαρμογής (για το email και το μενού). */
-function ccAppUrl_() { try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; } }
+function ccAppUrl_() {
+  var c = String(SomnioCore.cfg('CC_APP_URL', false) || '').trim();   // το link από «Διαχείριση αναπτύξεων» υπερισχύει
+  if (c) return c;
+  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
 
 function showAppLink() {
   var u = ccAppUrl_();
