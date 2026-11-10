@@ -192,14 +192,14 @@ function opHtml_(O, y, mo, now) {
   var h = [];
   h.push('<html><head><meta charset="utf-8"><style>' +
     'body{font-family:Helvetica,Arial,sans-serif;color:#1E2230;font-size:10.5pt;margin:0}' +
-    '.cover{background:' + OP_NAVY + ';color:#fff;padding:22px 28px}' +
-    '.cover .b{font-size:20pt;letter-spacing:3px;font-weight:bold}.cover .t{font-size:13pt;margin-top:6px}.cover .s{font-size:9.5pt;opacity:.8;margin-top:4px}' +
-    '.wrap{padding:6px 28px 20px}h2{color:' + OP_NAVY + ';font-size:12pt;border-bottom:2px solid ' + OP_CREAM + ';padding-bottom:4px;margin:18px 0 8px}' +
-    'table{width:100%;border-collapse:collapse}th{background:' + OP_CREAM + ';color:' + OP_NAVY + ';font-size:8.5pt;text-align:left;padding:5px}' +
-    'td{padding:5px;border-bottom:1px solid #E6E3DC;font-size:9.5pt}td.n,th.n{text-align:right}tr.tot td{font-weight:bold;border-top:2px solid ' + OP_NAVY + '}' +
-    '.kpi td{border:0;padding:3px 5px}.kpi .l{color:' + OP_ACCENT + '}.kpi .v{font-weight:bold;text-align:right}' +
-    '.box{background:' + OP_CREAM + ';padding:10px 12px;margin-top:6px}.big{font-size:13pt;font-weight:bold;color:' + OP_NAVY + '}' +
-    '.note{color:' + OP_ACCENT + ';font-size:8.5pt;margin-top:4px}.foot{color:' + OP_ACCENT + ';font-size:8pt;text-align:center;margin-top:24px}' +
+    '.cover{border-bottom:4px solid ' + OP_NAVY + ';padding:18px 28px 12px}' +
+    '.cover .b{font-size:20pt;letter-spacing:4px;font-weight:bold;color:' + OP_NAVY + '}.cover .t{font-size:13pt;margin-top:6px;color:' + OP_NAVY + '}.cover .s{font-size:9.5pt;color:' + OP_ACCENT + ';margin-top:4px}' +
+    '.wrap{padding:6px 28px 20px}h2{color:' + OP_NAVY + ';font-size:12pt;border-bottom:2px solid ' + OP_NAVY + ';padding-bottom:3px;margin:18px 0 8px}' +
+    'table{width:100%;border-collapse:collapse}th{color:' + OP_NAVY + ';font-size:8.5pt;text-align:left;padding:5px;border-bottom:1px solid ' + OP_NAVY + '}' +
+    'td{padding:5px;border-bottom:1px solid #DDDDDD;font-size:9.5pt}td.n,th.n{text-align:right}td.g{white-space:nowrap}tr.tot td{font-weight:bold;border-top:2px solid ' + OP_NAVY + '}' +
+    '.kpi td{border:0;padding:3px 5px}.kpi .l{color:#555555}.kpi .v{font-weight:bold;text-align:right}' +
+    '.box{border:1px solid ' + OP_NAVY + ';border-left:5px solid ' + OP_NAVY + ';padding:8px 12px;margin-top:8px}.big{font-size:13pt;font-weight:bold;color:' + OP_NAVY + '}' +
+    '.note{color:#666666;font-size:8.5pt;margin-top:4px}.foot{color:#888888;font-size:8pt;text-align:center;margin-top:24px;border-top:1px solid #DDDDDD;padding-top:6px}' +
     '</style></head><body>');
   h.push('<div class="cover"><div class="b">SOMNIO</div><div class="t">' + e(T.title) + ' — ' + e(M[mo]) + ' ' + y + '</div>' +
     '<div class="s">' + e(O.owner) + ' · ' + e(O.props.length > 1 ? T.properties : T.property) + ': ' + e(O.props.join(', ')) + '</div></div><div class="wrap">');
@@ -219,7 +219,7 @@ function opHtml_(O, y, mo, now) {
     h.push('<table><tr><th>' + e(T.checkin) + '</th><th>' + e(T.checkout) + '</th>' + (multi ? '<th>' + e(T.property) + '</th>' : '') + '<th>' + e(T.channel) + '</th><th>' + e(T.guest) +
       '</th><th class="n">' + e(T.nights) + '</th><th class="n">' + e(T.value) + '</th><th class="n">' + e(T.fees) + '</th><th class="n">' + e(T.comm) + '</th><th class="n">' + e(T.net) + '</th></tr>');
     O.rows.forEach(function (r) {
-      h.push('<tr><td>' + opDMY_(r.ci) + '</td><td>' + opDMY_(r.co) + '</td>' + (multi ? '<td>' + e(r.res) + '</td>' : '') + '<td>' + e(r.ch) + '</td><td>' + e(r.guest) +
+      h.push('<tr><td>' + opDMY_(r.ci) + '</td><td>' + opDMY_(r.co) + '</td>' + (multi ? '<td>' + e(r.res) + '</td>' : '') + '<td>' + e(r.ch) + '</td><td class="g">' + e(r.guest) +
         (r.cancelled ? ' <i>(' + e(T.cancelled) + ')</i>' : '') + '</td><td class="n">' + r.nights + '</td><td class="n">' + eur(r.value) + '</td><td class="n">' + eur(r.fees) +
         '</td><td class="n">' + eur(r.comm) + '</td><td class="n">' + eur(r.net) + '</td></tr>');
     });
