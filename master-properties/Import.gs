@@ -5,6 +5,7 @@
  * Μενού: «4. Εισαγωγή στοιχείων από αρχείο ομάδας»
  *   1) δείχνει στο tab «Εισαγωγή» ΤΙ θα αλλάξει (Ακίνητο · Στήλη · Τώρα · Νέο · Σημείωση) — δεν γράφει τίποτα,
  *   2) ρωτάει «Να περαστούν;» → γράφει μόνο όσα διαφέρουν. Κενό στο αρχείο της ομάδας ΔΕΝ σβήνει τίποτα.
+ * Το Active ΔΕΝ περνάει: ενεργά/ανενεργά ορίζονται μόνο εδώ (μενού 5/6).
  * Email: «a / b», κόμμα, ; ή αλλαγή γραμμής → «a, b». ΑΦΜ / ΑΜΑ γράφονται ως κείμενο (κρατούν τα μηδενικά μπροστά).
  * Config TEAM_PROPERTIES_FILE = id του αρχείου της ομάδας (αλλιώς το ρωτάει).
  */
@@ -13,7 +14,7 @@ var IMP_TAB = 'Εισαγωγή';
 // στήλη αρχείου ομάδας → στήλη Master Properties 2027
 var IMP_MAP = [['Owner_Type', 'Owner_Type'], ['Owner_Name', 'Owner_Name'], ['Owner_Email', 'Owner_Email'],
   ['Accountant_Email', 'Accountant_Email'], ['Greeting_Name', 'Greeting_Name'], ['AFM', 'AFM'], ['AMA', 'AMA'],
-  ['Issue_Invoice', 'Issue_Invoice'], ['Active', 'Active_2027'], ['Owner_Legal_Name', 'Owner_Legal_Name'],
+  ['Issue_Invoice', 'Issue_Invoice'], ['Owner_Legal_Name', 'Owner_Legal_Name'],
   ['DOY', 'DOY'], ['Owner_Address', 'Owner_Address'], ['Notes', 'Notes']];
 var IMP_TEXT = ['AFM', 'AMA'];
 

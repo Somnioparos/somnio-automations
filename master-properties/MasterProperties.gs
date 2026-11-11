@@ -40,6 +40,9 @@ function onOpen() {
     .addItem('3. Έλεγχος πληρότητας', 'checkCompleteness')
     .addSeparator()
     .addItem('4. Εισαγωγή στοιχείων από αρχείο ομάδας', 'importTeamProperties')
+    .addSeparator()
+    .addItem('5. Αφαίρεση ακινήτου (επιλεγμένες γραμμές)', 'removeProperty')
+    .addItem('6. Ενεργοποίηση ακινήτου (επιλεγμένες γραμμές)', 'restoreProperty')
     .addToUi();
 }
 
@@ -203,3 +206,36 @@ function checkCompleteness() {
   });
   try { SpreadsheetApp.getUi().alert('Έλεγχος ολοκληρώθηκε: δες το tab «' + TAB_CHECK + '».'); } catch (e) {}
 }
+
+// -- 5/6. ΑΦΑΙΡΕΣΗ / ΕΠΑΝΑΦΟΡΑ ΑΚΙΝΗΤΟΥ ------------------------------------------
+// Τίποτα δεν σβήνεται: αλλάζει μόνο το Active_2027 (FALSE = εκτός χαρτοφυλακίου 2027) + σημείωση με ημερομηνία.
+// Με FALSE: δεν εμφανίζεται σε Proposals, Owner Portal, Financials ανά ακίνητο, πληρότητα Control Center, λίστες Candy.
+
+function setActive_(on) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), ui = SpreadsheetApp.getUi(), sh = ss.getActiveSheet();
+  if (sh.getName() !== TAB_PROPS) { ui.alert('Πήγαινε στο tab «' + TAB_PROPS + '» και κάνε κλικ στη γραμμή (ή σε πολλές γραμμές) του ακινήτου.'); return; }
+  var rg = sh.getActiveRange(), r0 = Math.max(rg.getRow(), 2), r1 = rg.getLastRow();
+  if (r1 < 2) { ui.alert('Διάλεξε γραμμή ακινήτου (όχι τους τίτλους).'); return; }
+  var map = SomnioCore.headerMap(sh), cRes = map['Residence'], cAct = map['Active_2027'], cNotes = map['Notes'];
+  var v = sh.getRange(r0, 1, r1 - r0 + 1, sh.getLastColumn()).getValues();
+  var names = v.map(function (x) { return x[cRes]; }).filter(String);
+  if (!names.length) return;
+  var q = on ? 'Να γίνουν ΕΝΕΡΓΑ για το 2027:\n\n' + names.join('\n') + '\n\n(θα εμφανίζονται ξανά σε προτάσεις, αναφορές, καταστάσεις ιδιοκτητών)'
+    : 'Να ΑΦΑΙΡΕΘΟΥΝ από το 2027:\n\n' + names.join('\n') + '\n\nΔεν σβήνεται τίποτα — γίνονται Active_2027 = FALSE και σταματούν να εμφανίζονται σε προτάσεις, αναφορές και καταστάσεις ιδιοκτητών.';
+  if (ui.alert(on ? 'Ενεργοποίηση ακινήτου' : 'Αφαίρεση ακινήτου', q, ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  SomnioCore.runJob('Master Properties · ' + (on ? 'Ενεργοποίηση' : 'Αφαίρεση'), function () {
+    var d = Utilities.formatDate(new Date(), 'Europe/Athens', 'dd/MM/yyyy');
+    v.forEach(function (x, i) {
+      if (!x[cRes]) return;
+      sh.getRange(r0 + i, cAct + 1).setValue(on ? 'TRUE' : 'FALSE');
+      if (cNotes !== undefined) {
+        var n = String(x[cNotes] || '').trim(), add = (on ? 'Ενεργό από ' : 'Αφαιρέθηκε ') + d;
+        sh.getRange(r0 + i, cNotes + 1).setValue(n ? n + ' · ' + add : add);
+      }
+    });
+    return { count: names.length, detail: names.join(', ') };
+  });
+  try { checkCompleteness(); } catch (e) {}
+}
+function removeProperty() { setActive_(false); }
+function restoreProperty() { setActive_(true); }
