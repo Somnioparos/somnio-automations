@@ -38,6 +38,8 @@ function onOpen() {
     .addItem('1. Στήσιμο / φρεσκάρισμα μορφής', 'setupProperties')
     .addItem('2. Ενημέρωση από Hosthub', 'syncFromHosthub')
     .addItem('3. Έλεγχος πληρότητας', 'checkCompleteness')
+    .addSeparator()
+    .addItem('4. Εισαγωγή στοιχείων από αρχείο ομάδας', 'importTeamProperties')
     .addToUi();
 }
 

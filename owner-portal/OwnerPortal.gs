@@ -81,6 +81,10 @@ function opEuro_(n) {
 }
 function opDMY_(d) { d = opDate_(d); return d ? ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear() : ''; }
 function opEsc_(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+/** Πολλά email με / , ; ή αλλαγή γραμμής → «a@x.gr, b@y.gr» (μόνο τα έγκυρα). */
+function opEmails_(s) {
+  return String(s || '').split(/[\s,;\/]+/).filter(function (e) { return /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e); }).join(', ');
+}
 function opLang_(v) { return /ελ|el|gr/i.test(String(v || '')) ? 'el' : 'en'; }
 function opTable_(ss, name, hdrRow) {
   var sh = ss && ss.getSheetByName(name), h = hdrRow || 1; if (!sh || sh.getLastRow() <= h) return [];
@@ -111,7 +115,7 @@ function opBuild_(d) {
     }
     var O = owners[k];
     O.props.push(res); propOwner[opKey_(res)] = k;
-    if (!O.email && p['Owner_Email']) O.email = String(p['Owner_Email']).trim();
+    if (!O.email && p['Owner_Email']) O.email = opEmails_(p['Owner_Email']);
     if (!O.greet && p['Greeting_Name']) O.greet = String(p['Greeting_Name']).trim();
     if (ot === 'Εταιρεία') O.type = 'Εταιρεία';
   });
@@ -334,7 +338,7 @@ function opSetupTabs_(ss) {
     var ot = String(p['Owner_Type'] || ''), n = String(p['Owner_Name'] || '').trim();
     if (!n || ot === 'Δικό μας' || String(p['Active_2027']).toUpperCase() === 'FALSE') return;
     var k = opKey_(n); list[k] = list[k] || { n: n, props: [], email: '' };
-    list[k].props.push(p['Residence']); if (!list[k].email && p['Owner_Email']) list[k].email = String(p['Owner_Email']).trim();
+    list[k].props.push(p['Residence']); if (!list[k].email && p['Owner_Email']) list[k].email = opEmails_(p['Owner_Email']);
   });
   var H = ['Ιδιοκτήτης', 'Ακίνητα', 'Email (από Master Properties)', 'Γλώσσα', 'Αποστολή', 'Κοινοποίηση (cc)', 'Σημείωση'];
   var R = [H].concat(Object.keys(list).sort().map(function (k) {

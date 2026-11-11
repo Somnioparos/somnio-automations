@@ -159,8 +159,8 @@ function invBuild_(bookings, props, vouchers, old, today, vat, bankText) {
     var r = {
       id: id, ci: invDate_(b['Check_in']), co: invDate_(b['Check_out']), res: String(b['Residence'] || ''),
       owner: String(p['Owner_Name'] || ''), legal: String(p['Owner_Legal_Name'] || ''), afm: String(p['AFM'] || '').trim(),
-      doy: String(p['DOY'] || ''), addr: String(p['Owner_Address'] || ''), email: String(p['Owner_Email'] || '').trim(),
-      acc: String(p['Accountant_Email'] || '').trim(), greet: p['Greeting_Name'], contact: p['Oxygen_Contact_ID'] || '',
+      doy: String(p['DOY'] || ''), addr: String(p['Owner_Address'] || ''), email: invEmails_(p['Owner_Email']).ok,
+      acc: invEmails_(p['Accountant_Email']).ok, greet: p['Greeting_Name'], contact: p['Oxygen_Contact_ID'] || '',
       platform: String(b['Platform'] || '').trim(), guest: String(b['Guest name'] || ''), passport: String(b['Passport_AFM'] || '').trim(),
       resId: String(b['Reservation ID'] || '').trim(), doc: doc, comm: comm, commVat: commVat, airbnb: airbnb, airbnbVat: airbnbVat
     };
@@ -171,6 +171,9 @@ function invBuild_(bookings, props, vouchers, old, today, vat, bankText) {
     var vUrl = r.resId && vouchers[invKey_(r.resId)];
     if (!vUrl) miss.push('voucher στον φάκελο Vouchers');
     if (!r.email) miss.push('Owner_Email');
+    [['Owner_Email', p['Owner_Email']], ['Accountant_Email', p['Accountant_Email']]].forEach(function (x) {
+      var bad = invEmails_(x[1]).bad; if (bad.length) miss.push(x[0] + ' λάθος: ' + bad.join(', '));
+    });
     // Επωνυμία / ΔΟΥ / διεύθυνση τα φέρνει το Oxygen από τη ΓΓΠΣ με το ΑΦΜ — αρκεί το ΑΦΜ.
     if (doc === 'Τιμολόγιο' && !/^\d{9}$/.test(r.afm)) miss.push('ΑΦΜ (9 ψηφία)');
     var ex = old[id] || {};
@@ -301,6 +304,16 @@ function invPick_() {
     g: function (c) { return m[c] === undefined ? '' : v[m[c]]; },
     set: function (c, val) { if (m[c] !== undefined) { sh.getRange(row, m[c] + 1).setValue(val); v[m[c]] = val; } }
   };
+}
+
+/** «a@x.gr / b@y.gr» ή με κόμμα, ; ή αλλαγή γραμμής → { ok: 'a@x.gr, b@y.gr', bad: [λάθος γραμμένα] }. */
+function invEmails_(s) {
+  var ok = [], bad = [];
+  String(s || '').split(/[\s,;\/]+/).forEach(function (e) {
+    e = e.trim(); if (!e) return;
+    (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) ? ok : bad).push(e);
+  });
+  return { ok: ok.join(', '), bad: bad };
 }
 
 function invPdfName_(g) { return String(g('Αρ. παραστατικού')).replace(/\s+/g, '_') + '_' + String(g('Αιτιολογία κατάθεσης')); }
