@@ -39,6 +39,11 @@ function impClean_(col, v, row) {
     if (parts.some(function (x) { return !/^\d{9}$/.test(x); })) note = '⚠ ΑΦΜ όχι 9 ψηφία';
     else if (parts.length > 1) note = '⚠ 2 ΑΦΜ — σε ποιον εκδίδεται το παραστατικό;';
   }
+  if (col === 'Owner_Address' && s && row && String(row['Owner_Type']).trim() === 'Εταιρεία') {
+    if (/(^|[^\d])\d{6}(?!\d)/.test(s)) note = '⚠ ΤΚ με 6 ψηφία — έλεγξε';
+    else if (!/(^|[^\d])\d{3} ?\d{2}(?!\d)/.test(s)) note = '⚠ λείπει ΤΚ (5 ψηφία)';
+  }
+  if (col === 'AFM' && /^\d{8}$/.test(s)) note = '⚠ ΑΦΜ 8 ψηφία — μήπως λείπει 0 μπροστά;';
   if (col === 'AMA' && s && /^\d+$/.test(s) && s.length < 11) note = 'ΑΜΑ ' + s.length + ' ψηφία (τα άλλα έχουν 11) — έλεγξε';
   if (col === 'Owner_Type' && row && row['Owner_Type'] === 'Δικό μας' && String(row['Issue_Invoice']).trim() === 'Τιμολόγιο') note = '⚠ «Δικό μας» αλλά Issue_Invoice = Τιμολόγιο';
   if (col === 'Active_2027' && s) s = String(s).toUpperCase();
@@ -54,7 +59,10 @@ function importTeamProperties() {
     if (!id) { ui.alert('Δεν βρήκα id αρχείου στο link.'); return; }
   }
   var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = propsSheet_(), m = SomnioCore.headerMap(sh), changes = [], extra = [];
-  var team = SpreadsheetApp.openById(id).getSheets()[0], tm = SomnioCore.headerMap(team);
+  var src = SpreadsheetApp.openById(id), team = src.getSheetByName(TAB_PROPS) || src.getSheets()[0], tm = SomnioCore.headerMap(team);
+  // ίδια μορφή με το Master Properties 2027 (αντίγραφο) → περνούν όλες οι στήλες των χρηστών, εκτός από Active_2027
+  var same = tm['Hosthub_Name'] !== undefined;
+  var pairs = same ? MANUAL_COLS.filter(function (c) { return c !== 'Active_2027'; }).map(function (c) { return [c, c]; }) : IMP_MAP;
   if (tm['Listing_ID'] === undefined) { ui.alert('Το αρχείο της ομάδας δεν έχει στήλη Listing_ID.'); return; }
   var tv = team.getRange(2, 1, team.getLastRow() - 1, team.getLastColumn()).getValues();
   var mv = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues(), rowOf = {};
@@ -65,16 +73,40 @@ function importTeamProperties() {
     var i = rowOf[lid];
     if (i === undefined) { extra.push(String(t[tm['Residence']] || lid)); return; }
     var res = mv[i][m['Residence']];
-    IMP_MAP.forEach(function (pair) {
+    pairs.forEach(function (pair) {
       if (tm[pair[0]] === undefined || m[pair[1]] === undefined) return;
       var c = impClean_(pair[1], t[tm[pair[0]]], obj), now = String(mv[i][m[pair[1]]] === null ? '' : mv[i][m[pair[1]]]).trim();
       if (!c.v) { if (c.note) changes.push([res, pair[1], now, '', c.note, i + 2, m[pair[1]] + 1, false]); return; }   // κενό δεν σβήνει
       if (pair[1] === 'Notes' && now && now.indexOf(c.v) > -1) return;
-      var nv = pair[1] === 'Notes' && now ? now + ' · ' + c.v : c.v;
+      var nv = pair[1] === 'Notes' && now && !same && c.v.indexOf(now) === -1 ? now + ' · ' + c.v : c.v;
       if (nv === now && !c.note) return;
-      changes.push([res, pair[1], now, nv, c.note, i + 2, m[pair[1]] + 1, nv !== now]);
+      var raw = t[tm[pair[0]]];   // αριθμοί/booleans γράφονται όπως είναι (π.χ. 1.5 μπάνια — όχι ως κείμενο)
+      changes.push([res, pair[1], now, nv, c.note, i + 2, m[pair[1]] + 1, nv !== now, 'p', (typeof raw === 'number' || typeof raw === 'boolean') && IMP_TEXT.indexOf(pair[1]) === -1 ? raw : undefined]);
     });
   });
+  // --- Agencies (αν το αρχείο της ομάδας έχει tab Agencies): νέες γραμμές προστίθενται, υπάρχουσες ενημερώνονται
+  var agT = src.getSheetByName(TAB_AGENCIES), agM = ss.getSheetByName(TAB_AGENCIES);
+  if (agT && agM && agT.getLastRow() > 1) {
+    var am = SomnioCore.headerMap(agM), atm = SomnioCore.headerMap(agT);
+    var cur = agM.getLastRow() > 1 ? agM.getRange(2, 1, agM.getLastRow() - 1, agM.getLastColumn()).getValues() : [], at = {}, seenA = {}, next = agM.getLastRow() + 1;
+    cur.forEach(function (r, i) { var k = String(r[am['Agency']] || '').trim().toLowerCase(); if (k) at[k] = i; });
+    agT.getRange(2, 1, agT.getLastRow() - 1, agT.getLastColumn()).getValues().forEach(function (r) {
+      var name = String(r[atm['Agency']] || '').trim(); if (!name) return;
+      var k = name.toLowerCase(), dup = seenA[k]; seenA[k] = 1;
+      var i = at[k], rowN = i === undefined ? next++ : i + 2;
+      if (i === undefined) at[k] = rowN - 2;
+      AGENCY_HDR.forEach(function (h) {
+        if (atm[h] === undefined || am[h] === undefined) return;
+        var raw = r[atm[h]], v = typeof raw === 'number' && /%/.test(h) && raw <= 1 ? Math.round(raw * 100) + '%' : String(raw === null ? '' : raw).trim();
+        if (!v) return;
+        var now = i === undefined || i >= cur.length ? '' : String(cur[i][am[h]] === null ? '' : cur[i][am[h]]).trim();
+        if (typeof (cur[i] || [])[am[h]] === 'number' && /%/.test(h)) now = Math.round(cur[i][am[h]] * 100) + '%';
+        var note = dup ? '⚠ η agency υπάρχει 2 φορές στο αρχείο — κράτα μία' : (h === 'Επαφή / email' && impEmails_(v).bad.length ? '⚠ λάθος email' : '');
+        if (v === now && !note) return;
+        changes.push(['Agency: ' + name, h, now, v, note, rowN, am[h] + 1, v !== now && !dup, 'ag', raw]);
+      });
+    });
+  }
   var out = [['Ακίνητο', 'Στήλη', 'Τώρα', 'Νέο', 'Σημείωση']].concat(changes.map(function (c) { return c.slice(0, 5); }));
   if (extra.length) out.push(['(δεν υπάρχουν στο Master Properties 2027)', extra.join(', '), '', '', '⚠ τρέξε «2. Ενημέρωση από Hosthub»']);
   var p = ss.getSheetByName(IMP_TAB) || ss.insertSheet(IMP_TAB);
@@ -88,9 +120,11 @@ function importTeamProperties() {
     ' ακίνητα (δες το tab «' + IMP_TAB + '»).' + (warn ? '\n' + warn + ' σημειώσεις ⚠ προς έλεγχο.' : '') + '\n\nΝα περαστούν;', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   SomnioCore.runJob('Master Properties · Εισαγωγή', function () {
     todo.forEach(function (c) {
+      var val = c[9] !== undefined && typeof c[9] !== 'string' ? c[9] : c[3];
+      if (c[8] === 'ag') { agM.getRange(c[5], c[6]).setValue(val); return; }
       var cell = sh.getRange(c[5], c[6]);
       if (IMP_TEXT.indexOf(c[1]) > -1) cell.setNumberFormat('@');
-      cell.setValue(c[3]);
+      cell.setValue(val);
     });
     return { count: todo.length, detail: 'αλλαγές ' + todo.length + ' · σημειώσεις ' + warn };
   });

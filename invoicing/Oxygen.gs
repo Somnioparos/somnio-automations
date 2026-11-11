@@ -129,12 +129,28 @@ function oxySetup_(doc) {
   return { seq: seq, tax: tax, pm: pm };
 }
 
-/** «Οδός 12, 54622 Θεσσαλονίκη» → {street, number, zip, city}. Ό,τι δεν βγαίνει μένει κενό. */
+/** Διεύθυνση σε ελεύθερη μορφή → {street, number, zip, city} (π.χ. «Κοραή 4 Κηφισιά ΤΚ 14561»). Ό,τι δεν βγαίνει μένει κενό. */
 function oxyAddr_(s) {
-  s = String(s || '').trim();
-  var m = s.match(/^(.*?)\s+(\d+[\w\-\/]*)\s*,?\s*(\d{3}\s?\d{2})\s*,?\s*(.+)$/);
-  if (m) return { street: m[1].replace(/,$/, ''), number: m[2], zip: m[3].replace(/\s/g, ''), city: m[4] };
-  return { street: s, number: '', zip: '', city: '' };
+  s = String(s || '').replace(/\s+/g, ' ').trim();
+  var out = { street: '', number: '', zip: '', city: '' }; if (!s) return out;
+  var z = s.match(/(^|[^\d])(\d{3}) ?(\d{2})(?!\d)/);
+  var rest = s;
+  if (z) { out.zip = z[2] + z[3]; rest = s.slice(0, z.index + z[1].length) + ' | ' + s.slice(z.index + z[0].length); }
+  rest = rest.replace(/(^|\s)(?:με\s+)?(?:Τ\.?\s?Κ\.?|T\.?\s?K\.?)(?=\s|\||,|$)/gi, ' ').replace(/\s+/g, ' ');
+  var parts = rest.split('|'), before = parts[0].replace(/[,\s]+$/, '').trim(), after = (parts[1] || '').replace(/^[,\s]+/, '').trim();
+  var n = before.match(/(^|\s)(\d{1,4}[A-Za-zΑ-Ωα-ω]?)(?=[\s,]|$)/);
+  if (n) {
+    out.number = n[2];
+    var pre = before.slice(0, n.index).replace(/[,\s]+$/, '').trim(), post = before.slice(n.index + n[0].length).replace(/^[,\s]+/, '').trim();
+    if (pre) { out.street = pre.split(',').pop().trim(); if (!after) after = post.replace(/^[,\s]+/, ''); }
+    else { var w = post.split(/[,]/)[0].trim().split(' '); out.street = w[0] || ''; if (!after) after = w.slice(1).join(' ') || post.split(',').slice(1).join(',').trim(); }
+  } else {
+    var b0 = before.split(',')[0].trim().split(' ');
+    out.street = b0.length > 1 ? b0.slice(0, -1).join(' ') : b0[0];
+    if (!after) after = before.split(',').length > 1 ? before.split(',').slice(1).join(',').trim() : (b0.length > 1 ? b0[b0.length - 1] : '');
+  }
+  out.city = after.split(',')[0].trim() || (before.split(',').length > 1 ? before.split(',').pop().trim() : '');
+  return out;
 }
 
 /**
