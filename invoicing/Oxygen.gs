@@ -161,7 +161,7 @@ function oxyAddr_(s) {
 function oxyContact_(g) {
   var known = String(g('Oxygen_Contact_ID') || '').trim();
   if (known) return { id: known, created: false };
-  var isCo = g('Παραστατικό') === 'Τιμολόγιο', afm = String(g('ΑΦΜ') || '').trim(), email = String(g('Email ιδιοκτήτη') || '').split(',')[0].trim();   // στο Oxygen μόνο το πρώτο
+  var isCo = g('Παραστατικό') === 'Τιμολόγιο', afm = invAfm_(g('ΑΦΜ')), email = String(g('Email ιδιοκτήτη') || '').split(',')[0].trim();   // στο Oxygen μόνο το πρώτο
   if (isCo) {
     if (!/^\d{9}$/.test(afm)) throw new Error('Λείπει ΑΦΜ (9 ψηφία) στο Master Properties.');
     var f = oxyList_('/contacts?vat=' + afm);

@@ -158,7 +158,7 @@ function invBuild_(bookings, props, vouchers, old, today, vat, bankText) {
     if (doc === 'Απόδειξη') { airbnb = 0; airbnbVat = 0; }               // επανατιμολόγηση μόνο σε εταιρείες
     var r = {
       id: id, ci: invDate_(b['Check_in']), co: invDate_(b['Check_out']), res: String(b['Residence'] || ''),
-      owner: String(p['Owner_Name'] || ''), legal: String(p['Owner_Legal_Name'] || ''), afm: String(p['AFM'] || '').trim(),
+      owner: String(p['Owner_Name'] || ''), legal: String(p['Owner_Legal_Name'] || ''), afm: invAfm_(p['AFM']),
       doy: String(p['DOY'] || ''), addr: String(p['Owner_Address'] || ''), email: invEmails_(p['Owner_Email']).ok,
       acc: invEmails_(p['Accountant_Email']).ok, greet: p['Greeting_Name'], contact: p['Oxygen_Contact_ID'] || '',
       platform: String(b['Platform'] || '').trim(), guest: String(b['Guest name'] || ''), passport: String(b['Passport_AFM'] || '').trim(),
@@ -447,6 +447,7 @@ function setupInvoicing() {
       if (/^Check|Εκδόθηκε|Email στάλθηκε/.test(c[0])) r.setNumberFormat('dd/mm/yyyy');
       if (/Προμήθεια|ΦΠΑ|Σύνολο|Προς πληρωμή/.test(c[0])) r.setNumberFormat('#,##0.00');
       if (/^Κείμενο email|^Περιγραφή/.test(c[0])) r.setWrap(false);
+      if (c[0] === 'ΑΦΜ') r.setNumberFormat('@');   // να μη χάνεται το 0 μπροστά
     });
     var L = function (n) { var x = m[n] + 1, s = ''; while (x > 0) { var k = (x - 1) % 26; s = String.fromCharCode(65 + k) + s; x = Math.floor((x - 1) / 26); } return s; };
     var all = sh.getRange(2, 1, rows, sh.getLastColumn()), st = L('Κατάσταση');
@@ -488,4 +489,10 @@ function onOpen() {
     .addItem('Αυτόματη ενημέρωση ON (~08:55)', 'invTriggerOn')
     .addItem('Αυτόματη ενημέρωση OFF', 'invTriggerOff')
     .addToUi();
+}
+
+/** ΑΦΜ ως κείμενο 9 ψηφίων: το Sheets κόβει το 0 μπροστά (046922988 → 46922988), το ξαναβάζουμε. */
+function invAfm_(v) {
+  var s = String(v === null || v === undefined ? '' : v).trim();
+  return /^\d{7,8}$/.test(s) ? ('000000000' + s).slice(-9) : s;
 }
