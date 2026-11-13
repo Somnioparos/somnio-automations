@@ -282,10 +282,16 @@ function draftSelected() {
   var fileId = function (url) { var x = String(url || '').match(/[-\w]{25,}/); return x ? x[0] : null; };
   [g('PDF'), g('Voucher')].forEach(function (u) { var id = fileId(u); if (id) att.push(DriveApp.getFileById(id).getBlob()); });
   var opts = { attachments: att };
-  if (g('Email λογιστή')) opts.cc = String(g('Email λογιστή'));
-  GmailApp.createDraft(String(g('Email ιδιοκτήτη')), String(g('Θέμα email')), String(g('Κείμενο email')), opts);
+  var prod = String(SomnioCore.cfg('OXYGEN_ENV', false) || 'sandbox').trim().toLowerCase() === 'production';
+  var to = String(g('Email ιδιοκτήτη')), subj = String(g('Θέμα email'));
+  if (prod) { if (g('Email λογιστή')) opts.cc = String(g('Email λογιστή')); }
+  else {   // sandbox: το draft πάει ΜΟΝΟ σε εμάς, ποτέ στον ιδιοκτήτη
+    to = String(SomnioCore.cfg('TEST_EMAIL', false) || '').trim() || Session.getActiveUser().getEmail();
+    subj = '[ΔΟΚΙΜΗ] ' + subj;
+  }
+  GmailApp.createDraft(to, subj, String(g('Κείμενο email')), opts);
   SomnioCore.logRun('Owner Invoicing · Draft', 'OK', 1, g('Ακίνητο') + ' ' + g('Επισκέπτης'));
-  ui.alert('Δημιουργήθηκε draft στο Gmail (' + att.length + ' συνημμένα). Έλεγξέ το πριν το στείλεις.' +
+  ui.alert('Δημιουργήθηκε draft στο Gmail προς ' + to + ' (' + att.length + ' συνημμένα). Έλεγξέ το πριν το στείλεις.' +
     (g('PDF') ? '' : '\n\nΣημ.: το παραστατικό δεν έχει εκδοθεί ακόμα — το PDF θα μπαίνει αυτόματα όταν συνδεθεί το Oxygen.'));
 }
 
